@@ -1,8 +1,16 @@
 import numpy
 
+DEFAULT_FLOW_RATE=0.01
 
-def network(network_type, agents_count):
+def network(network_type, agents_count, args=None):
     return_network=numpy.identity(agents_count)
+    if network_type == "outer":
+        if args is None:
+            fr=DEFAULT_FLOW_RATE
+        else:
+            fr=arg["flow_rate"]
+
+
 
     return return_network
 
