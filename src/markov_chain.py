@@ -1,6 +1,8 @@
 import numpy as np
-import ilm
 import tqdm
+import itertools
+
+import ilm
 
 
 
@@ -45,75 +47,78 @@ def transition_matrix(
         if not type(agents_arguments) == list:
             raise ValueError
         agents_count=len(agents_arguments)
+    if type(agents_arguments) == dict:
+        agents_arguments=[agents_arguments for _ in range(agents_count)]
 
     #init network
-    if type(network) == str or network is None:
-        network = ilm.networks.network(network_type=network,agents_count=agents_count)
+    if type(network) == dict or network is None:
+        network = ilm.networks.network(agents_count=agents_count,args=network)
     
     states=possible_states(agents_arguments)
     transition_matrix=np.array([
-        [transition_probability(prestate, poststate, network, agents_arguments) for poststate in states] for prestate in states
+        [transition_probability(prestate, poststate, network, agents_arguments) for prestate in states] for poststate in states
     ])
+    transition_matrix=transition_matrix.reshape([arg["data_size"]+1 for arg in agents_arguments]*2)
     return transition_matrix
 
     
     
 
 if __name__ == "__main__":#テスト
-    network=np.array([
-        [0.8,0.1,0.1],
-        [0,1,0],
-        [0.1,0.1,0.8],
-    ])
-    # network=np.array([
-    #     [1,0,0],
-    #     [0,1,0],
-    #     [0,0,1],
-    # ])
-    network=np.identity(5)
+
     agents_arguments=[
-        {"alpha":0.,"data_size":1},
-        {"alpha":0.,"data_size":1},
-        {"alpha":0.01,"data_size":1},
-        {"alpha":0.,"data_size":1},
-        {"alpha":0.,"data_size":1}
+        {"alpha":0.,"data_size":2},
+        {"alpha":0.01,"data_size":2},
+        {"alpha":0.,"data_size":2},
     ]
+    agents_count=len(agents_arguments)
+    network=ilm.networks.network(agents_count=agents_count,args={
+        "outer_flow_rate":0.01
+    })
+    print(network)
     m=transition_matrix(
         agents_arguments=agents_arguments,
-        network="outer"
+        network=network
     )
     data_sizes=np.array([arg["data_size"] for arg in agents_arguments], dtype=int)
 
     import matplotlib.pyplot as plt
-    simulation_count=100
-    agents_count=len(agents_arguments)
-    states_list=possible_states(agents_arguments=agents_arguments)
+    simulation_count=1000
+    states=np.zeros([agents_arguments[i]["data_size"]+1 for i in range(agents_count)])
     init_state=np.zeros(agents_count);init_state[agents_count//2]=1
-    print(init_state)
-    states=np.array(np.all(states_list==init_state, axis=1),dtype=float)
-    distances=np.empty((states_list.shape[0], agents_count*(agents_count-1)//2))
-    for si, state in enumerate(states_list):
-        for ai in range(agents_count):
-            for aj in range(ai+1,agents_count):
-                distances[si,ai+aj-1]=np.abs(state[ai]-state[aj])
-    for i in range(states_list.shape[0]):
-        print(states_list[i],distances[i])
-    print(distances.T@states)
-    distances_record=np.empty((simulation_count, agents_count*(agents_count-1)//2))
+    states[(0,1,0)]=1#todo　agent数、初期条件一般化する
     rai=1
-    one_agents_record=np.empty((simulation_count,data_sizes[rai]+1))
-    one_agent_matrix=np.array([list(map(lambda state: int(state[rai]==vc),  states_list)) for vc in range(data_sizes[rai]+1)])
+    print(m.shape)
     print("simulating....")
+    states_record=np.empty((simulation_count,)+states.shape)
     for i in tqdm.tqdm(range(simulation_count)):
-        one_agents_record[i]=one_agent_matrix@states
-        distances_record[i]=distances.T@states
-        states=m.T@states
-    
-    fig, ax=plt.subplots()
-    ax.plot(distances_record)
-    print(agents_count)
-    ax.legend([str(ai)+str(aj) for ai in range(agents_count) for aj in range(ai+1,agents_count)])
-    # ax.pcolor(one_agents_record.T)
-    plt.show()
+        states_record[i]=states
+        states = np.tensordot(m,states, axes=(range(agents_count,agents_count*2),range(agents_count)))
 
+    what_plot="distances"
+    if what_plot=="variants_frequency":
+        fig, ax=plt.subplots()
+        for ai in range(agents_count):
+            plt_data=np.tensordot(states_record.sum(axis=tuple(range(1,ai+1))+tuple(range(ai+2,agents_count))), [0,1], axes=((1),(0)))
+            ax.plot(plt_data)
+        plt.show()
+    if what_plot=="distances":#todo 異なるデータ数に拡張
+        fig, ax=plt.subplots()
+        distances_matrix=np.empty((agents_count,)*2+states.shape)
+        for index in itertools.product(*[range(ds) for  ds in distances_matrix.shape]):
+            distances_matrix[index]=abs(index[index[0]+2]-index[index[1]+2])
+        distances_record=np.tensordot(states_record,distances_matrix,axes=(range(1,agents_count+1),range(2,agents_count+2)))
+        # distances_record=np.zeros((simulation_count,)+(agents_count,)*2)
+        # for t in range(simulation_count):
+        #     for index in itertools.product(*[range(ds) for  ds in distances_matrix.shape]):
+        #         distances_record[(t,)+(index[0],index[1])]+=states_record[(t,)+index[2:]]*abs(index[index[0]+2]-index[index[1]+2])
+
+            
+        legend=[]
+        for ai in itertools.combinations(range(agents_count),2):
+            legend.append(str(ai[0])+str(ai[1]))
+            ax.plot(distances_record[:,ai[0],ai[1]])
+        ax.legend(legend)
+        plt.show()
+            
 

@@ -2,13 +2,22 @@ import numpy
 
 DEFAULT_FLOW_RATE=0.01
 
-def network(network_type, agents_count, args=None):
+def network(agents_count, args=None):
     return_network=numpy.identity(agents_count)
-    if network_type == "outer":
-        if args is None:
-            fr=DEFAULT_FLOW_RATE
-        else:
-            fr=arg["flow_rate"]
+    if not args is None:
+        if "outer_flow_rate" in args:
+            outer_frow_rate=args["outer_flow_rate"]
+            if "center_index" in args:
+                center_index = args["center_index"]
+            else:
+                center_index=agents_count//2
+            for ai in range(agents_count):
+                if ai < center_index:
+                    return_network[ai][ai+1]+=outer_frow_rate
+                    return_network[ai][ai]-=outer_frow_rate
+                elif ai > center_index:
+                    return_network[ai][ai-1]+=outer_frow_rate
+                    return_network[ai][ai]-=outer_frow_rate
 
 
 

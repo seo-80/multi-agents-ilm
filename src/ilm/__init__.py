@@ -15,12 +15,12 @@ def simulate(
         agents_count=1
 
     #init network
-    if type(network) == str or network is None:
-        network = networks.network(network_type=network,agents_count=agents_count)
+    if type(network) == dict or network is None:
+        network = networks.network(agents_count=agents_count,args=network_args)
 
     #init recorder
     if type(recorder) == str:
-        recorder=recorders.recorder(recorder_type=recorder,simulation_count=simulation_count,agents_count=agents_count)
+        recorder=recorders.recorder(recorder_type=recorder, simulation_count=simulation_count, agents_count=agents_count)
     
     #init agents
     if type(agents_arguments) == dict:
@@ -33,17 +33,10 @@ def simulate(
         datas=generate_datas(agents=agents,data_flow_counts=data_flow_count)
         for ai, agent in enumerate(agents):
             agent.learn(datas[ai])
-        
-
-
-    
-
-
     return recorder
 
 def generate_datas(agents,data_flow_counts):
     datas=numpy.zeros((len(agents),agents[0].variants_count))
-
     for i,_ in enumerate(agents):
         for j,learner in enumerate(agents):
             datas[i]+=agents[j].produce(n=data_flow_counts[i][j])
