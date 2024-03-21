@@ -5,19 +5,34 @@ DEFAULT_FLOW_RATE=0.01
 def network(agents_count, args=None):
     return_network=numpy.identity(agents_count)
     if not args is None:
-        if "outer_flow_rate" in args:
-            outer_frow_rate=args["outer_flow_rate"]
-            if "center_index" in args:
-                center_index = args["center_index"]
-            else:
-                center_index=agents_count//2
+        if "center_index" in args:
+            center_index = args["center_index"]
+        else:
+            center_index=agents_count//2
+        if "outward_flow_rate" in args:
+            outward_frow_rate=args["outward_flow_rate"]
             for ai in range(agents_count):
                 if ai < center_index:
-                    return_network[ai][ai+1]+=outer_frow_rate
-                    return_network[ai][ai]-=outer_frow_rate
+                    return_network[ai][ai+1]+=outward_frow_rate
+                    return_network[ai][ai]-=outward_frow_rate
                 elif ai > center_index:
-                    return_network[ai][ai-1]+=outer_frow_rate
-                    return_network[ai][ai]-=outer_frow_rate
+                    return_network[ai][ai-1]+=outward_frow_rate
+                    return_network[ai][ai]-=outward_frow_rate
+        
+        if "bidirectional_flow_rate" in args:
+            bidirectional_flow_rate=args["bidirectional_flow_rate"]
+            is_torus=args.get("is_torus",None)
+            for ai in range(agents_count):
+                return_network[ai][ai-1]+=bidirectional_flow_rate/2
+                return_network[ai][(ai+1)%agents_count]+=bidirectional_flow_rate/2
+                return_network[ai][ai]-=bidirectional_flow_rate
+
+            if not is_torus:
+                return_network[0][-1]-=bidirectional_flow_rate/2
+                return_network[0][0]+=bidirectional_flow_rate/2
+                return_network[-1][0]-=bidirectional_flow_rate/2
+                return_network[-1][-1]+=bidirectional_flow_rate/2
+
 
 
 
