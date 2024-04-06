@@ -3,6 +3,7 @@ import tqdm
 import itertools
 
 import ilm
+from operator import mul
 
 
 
@@ -71,10 +72,10 @@ def transition_matrix(
         agents_count=len(agents_arguments)
     if type(agents_arguments) == dict:
         agents_arguments=[agents_arguments for _ in range(agents_count)]
-
     #init network
     if type(network) == dict or network is None:
         network = ilm.networks.network(agents_count=agents_count,args=network)
+
     transition_matrix=np.empty([arg["data_size"]+1 for arg in agents_arguments]*2)
     for prestate in (itertools.product(*[range(arg["data_size"]+1) for arg in agents_arguments])):
         for poststate in itertools.product(*[range(arg["data_size"]+1) for arg in agents_arguments]):
@@ -82,6 +83,26 @@ def transition_matrix(
 
     return transition_matrix
 
+
+def get_new_variant_probability(
+    agents_arguments,
+    agents_count=None,
+    network=None,
+):
+    if agents_count is None:
+        if not type(agents_arguments) == list:
+            raise ValueError
+        agents_count=len(agents_arguments)
+    if type(agents_arguments) == dict:
+        agents_arguments=[agents_arguments for _ in range(agents_count)]
+    #init network
+    if type(network) == dict or network is None:
+        network = ilm.networks.network(agents_count=agents_count,args=network)
+
+    data_sizes=np.array([arg["data_size"] for arg in agents_arguments], dtype=int)
+    alphas=np.array([arg["alpha"] for arg in agents_arguments], dtype=float)
+    make_new_variant_probability=np.array(list(map(lambda a,n :a/(a+n), alphas, data_sizes)))
+    return np.array(list(map(mul, data_sizes, network@make_new_variant_probability)))
     
     
 
@@ -97,27 +118,35 @@ if __name__ == "__main__":#テスト
         {"alpha":0.,"data_size":1},
     ]
 
-    
+
+
     agents_count=len(agents_arguments)
     network=ilm.networks.network(agents_count=agents_count,args={
-        "bidimentional_flow_rate":0.1
+        # "bidirectional_flow_rate":0.01,
+        "outward_flow_rate":0.1,
+        "is_torus":False
     })
     print(network)
-    pri
+
     m=transition_matrix(
         agents_arguments=agents_arguments,
         network=network
     )
+    new_variant_probability=get_new_variant_probability(
+        agents_arguments=agents_arguments,
+        network=network
+    )
+    print(new_variant_probability)
     data_sizes=np.array([arg["data_size"] for arg in agents_arguments], dtype=int)
 
     simulation_count=10000
     import matplotlib.pyplot as plt
     states=np.zeros([agents_arguments[i]["data_size"]+1 for i in range(agents_count)])
-    init_state=np.zeros(agents_count,dtype=int);init_state[agents_count//2]=1
-    states[tuple(init_state)]=1#todo　agent数、初期条件一般化する
-
+    for ai in range(agents_count):
+        init_state=np.zeros(agents_count,dtype=int);init_state[ai]=1
+        states[tuple(init_state)]=new_variant_probability[ai]
+    print(new_variant_probability)
     rai=1
-
     print("simulating....")
     states_record=np.empty((simulation_count,)+states.shape)
     for i in tqdm.tqdm(range(simulation_count)):
@@ -153,4 +182,4 @@ if __name__ == "__main__":#テスト
         ax.invert_xaxis()
         ax.pcolor(distances_record.sum(axis=0))
         ax.legend(legend)
-        # plt.show()
+        plt.show()
