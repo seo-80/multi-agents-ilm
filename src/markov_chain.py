@@ -1,12 +1,13 @@
 import numpy as np
 import tqdm
 import itertools
+import os
 
 import ilm
 from operator import mul
 
 
-
+base_dir=os.path.dirname(__file__)+"/.."
 
 def possible_states(
     agents_arguments,
@@ -117,6 +118,15 @@ if __name__ == "__main__":#テスト
         {"alpha":0.,"data_size":1},
         {"alpha":0.,"data_size":1},
     ]
+    agents_arguments=[
+        {"alpha":0.1,"data_size":1},
+        {"alpha":0.1,"data_size":1},
+        {"alpha":0.1,"data_size":1},
+        {"alpha":0.1,"data_size":1},
+        {"alpha":0.1,"data_size":1},
+        {"alpha":0.1,"data_size":1},
+        {"alpha":0.1,"data_size":1},
+    ]
 
 
 
@@ -145,8 +155,7 @@ if __name__ == "__main__":#テスト
     for ai in range(agents_count):
         init_state=np.zeros(agents_count,dtype=int);init_state[ai]=1
         states[tuple(init_state)]=new_variant_probability[ai]
-    print(new_variant_probability)
-    rai=1
+
     print("simulating....")
     states_record=np.empty((simulation_count,)+states.shape)
     for i in tqdm.tqdm(range(simulation_count)):
@@ -172,8 +181,6 @@ if __name__ == "__main__":#テスト
         # for t in range(simulation_count):
         #     for index in itertools.product(*[range(ds) for  ds in distances_matrix.shape]):
         #         distances_record[(t,)+(index[0],index[1])]+=states_record[(t,)+index[2:]]*abs(index[index[0]+2]-index[index[1]+2])
-
-
 
         legend=[]
         # for ai in itertools.combinations(range(agents_count),2):

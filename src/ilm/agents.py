@@ -2,7 +2,7 @@ import numpy
 
 
 class BayesianFiniteVariantsAgent:
-    def __init__(self,data=None , alpha:float=0.0 ,data_size=None, variants_count=2, init_data_type="evenly"):
+    def __init__(self,data=None , alpha:float=0.0 ,data_size=None, variants_count=16, init_data_type="evenly"):
         self.__alpha=alpha
         if data is None:
             if data_size is None:

@@ -1,4 +1,5 @@
 import numpy
+import tqdm
 from . import agents, networks, recorders
 
 
@@ -9,6 +10,7 @@ def simulate(
     agents_count=None,
     agents_arguments=None,
     network=None,
+    network_args=None,
     recorder="data",
 ):
     if agents_count is None:
@@ -27,7 +29,7 @@ def simulate(
         agents_arguments=[agents_arguments for _ in range(agents_count)]
     agents=[agent(**arg) for arg in agents_arguments]
     total_data_counts=[agent.data_size for agent in agents]
-    for si in range(simulation_count):
+    for si in tqdm.trange(simulation_count):
         recorder(agents=agents)
         data_flow_count=networks.generate_data_flow_count(network,total_data_counts=total_data_counts)
         datas=generate_datas(agents=agents,data_flow_counts=data_flow_count)

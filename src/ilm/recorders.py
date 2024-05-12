@@ -6,6 +6,8 @@ def recorder(recorder_type=None, simulation_count=None, agents_count=None):
         return Recorder(simulation_count=simulation_count)
     elif recorder_type == "data":
         return DataRecorder(simulation_count=simulation_count)
+    elif recorder_type == "distance":
+        return DistanceRecorder(simulation_count=simulation_count)
 
 
 class Recorder:
@@ -39,6 +41,12 @@ class DataRecorder(Recorder):
     def fileter_function(self,**kwargs):
         return numpy.array([agent.data for agent in kwargs["agents"]])
 
+class DistanceRecorder(Recorder):
+    def __init__(self,simulation_count,data_shape=None):
+        super().__init__(simulation_count=simulation_count,data_shape=data_shape)
+    
+    def fileter_function(self,**kwargs):
+        return numpy.array([[numpy.abs(agenti.data-agentj.data).sum() for agenti in kwargs["agents"]] for agentj in kwargs["agents"]])
 
 class FilterFunction:#argsは(data,agents)
     def filter_data(**kwargs):
