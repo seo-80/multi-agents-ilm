@@ -1,13 +1,16 @@
 import numpy
+import itertools
 
 
-def recorder(recorder_type=None, simulation_count=None, agents_count=None):
+def recorder(recorder_type=None, simulation_count=None):
     if recorder_type is None:
         return Recorder(simulation_count=simulation_count)
     elif recorder_type == "data":
         return DataRecorder(simulation_count=simulation_count)
     elif recorder_type == "distance":
         return DistanceRecorder(simulation_count=simulation_count)
+    elif recorder_type == "data_state_vec":
+        return DataRecorderStateVec(simulation_count=simulation_count)
 
 
 class Recorder:
@@ -40,6 +43,32 @@ class DataRecorder(Recorder):
     
     def fileter_function(self,**kwargs):
         return numpy.array([agent.data for agent in kwargs["agents"]])
+    
+    @property
+    def distance(self):
+        return numpy.array([[[numpy.abs(agenti-agentj).sum() for agenti in self._Recorder__return_record[t]] for agentj in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
+
+    def compute_distance(self,**kwargs):
+        return numpy.array([[numpy.abs(agenti.data-agentj.data).sum() for agenti in kwargs["agents"]] for agentj in kwargs["agents"]])
+
+class DataRecorderStateVec(Recorder):
+    def __init__(self,simulation_count,data_shape=None, distances_matrix=None):
+        super().__init__(simulation_count=simulation_count,data_shape=data_shape)
+        self.distances_matrix = distances_matrix
+    
+    def fileter_function(self,**kwargs):
+        return numpy.array(kwargs["states"])
+    
+    @property
+    def distance(self):
+        if self.distances_matrix is None:
+            agents_count = len(self._Recorder__return_record.shape) - 1
+            self.distances_matrix = numpy.empty((agents_count,) * 2 + self._Recorder__return_record.shape[1:])
+            for index in itertools.product(*[range(ds) for ds in self.distances_matrix.shape]):
+                self.distances_matrix[index] = abs(index[index[0] + 2] - index[index[1] + 2])
+        return numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
+
+        # distances_record =numpy.tensordot(states_record, distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
 
 class DistanceRecorder(Recorder):
     def __init__(self,simulation_count,data_shape=None):
