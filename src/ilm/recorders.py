@@ -11,6 +11,8 @@ def recorder(recorder_type=None, simulation_count=None):
         return DistanceRecorder(simulation_count=simulation_count)
     elif recorder_type == "data_state_vec":
         return DataRecorderStateVec(simulation_count=simulation_count)
+    else:
+        raise ValueError(f"Unknown recorder type: {recorder_type}")
 
 
 class Recorder:
@@ -61,12 +63,13 @@ class DataRecorderStateVec(Recorder):
     
     @property
     def distance(self):
+        agents_count = len(self._Recorder__return_record.shape) - 1
         if self.distances_matrix is None:
-            agents_count = len(self._Recorder__return_record.shape) - 1
             self.distances_matrix = numpy.empty((agents_count,) * 2 + self._Recorder__return_record.shape[1:])
             for index in itertools.product(*[range(ds) for ds in self.distances_matrix.shape]):
                 self.distances_matrix[index] = abs(index[index[0] + 2] - index[index[1] + 2])
         return numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
+        # return numpy.tensordot( self.distances_matrix,self._Recorder__return_record, axes=(range(2, agents_count + 2), range(1, agents_count + 1)))
 
         # distances_record =numpy.tensordot(states_record, distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
 
