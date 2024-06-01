@@ -32,38 +32,54 @@ def binomial(pval, x_v, M):
     prob=C*(pval**x_v*(1-pval)**(M-x_v))
     return prob
 
-def transition_probability(prestate, poststate, network, agents_arguments):
+def transition_probability(prestate, poststate, network, agents_arguments, agent_type):
     agents_count=len(prestate)
     alphas=np.array([arg["alpha"] for arg in agents_arguments])
     data_sizes=np.array([arg["data_size"] for arg in agents_arguments], dtype=int)
-    valiation_probability=np.array([np.dot(prestate/data_sizes*(1-alphas), network[i]) for i in range(agents_count)])
-    ret_probability=np.prod([binomial(valiation_probability[ai], poststate[ai], data_sizes[ai]) for ai in range(agents_count)], axis=0)
-    return ret_probability
+    if agent_type == "BayesianFiniteVariantsAgent":
+        variants_count= agents_arguments[0]["variants_count"]
+        valiation_probability=np.array([np.dot((prestate + alphas/variants_count)/(data_sizes+alphas), network[i]) for i in range(agents_count)])
+        # print([binomial(valiation_probability[ai], poststate[ai], data_sizes[ai]) for ai in range(agents_count)])
+        ret_probability=np.prod([binomial(valiation_probability[ai], poststate[ai], data_sizes[ai]) for ai in range(agents_count)], axis=0)
+        return ret_probability
+    elif agent_type == "BayesianInfiniteVariantsAgent":
 
-def transition_matrix(
-    agents_arguments,
-    agents_count=None,
-    network=None,
-):
-    if agents_count is None:
-        if not type(agents_arguments) == list:
-            raise ValueError
-        agents_count=len(agents_arguments)
-    if type(agents_arguments) == dict:
-        agents_arguments=[agents_arguments for _ in range(agents_count)]
+        valiation_probability=np.array([np.dot(prestate/(data_sizes+alphas), network[i]) for i in range(agents_count)])
+        ret_probability=np.prod([binomial(valiation_probability[ai], poststate[ai], data_sizes[ai]) for ai in range(agents_count)], axis=0)
+        return ret_probability
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
+    #昔のコード違うと思うが動いてたので、一応残しておく
+    # valiation_probability=np.array([np.dot(prestate/data_sizes*(1-alphas), network[i]) for i in range(agents_count)])
+    # ret_probability=np.prod([binomial(valiation_probability[ai], poststate[ai], data_sizes[ai]) for ai in range(agents_count)], axis=0)
+    # return ret_probability
 
-    #init network
-    if type(network) == dict or network is None:
-        network = ilm.networks.network(agents_count=agents_count,args=network)
+# def transition_matrix(
+#     agents_arguments,
+#     agent_type,
+#     agents_count=None,
+#     network=None,
+# ):
+#     if agents_count is None:
+#         if not type(agents_arguments) == list:
+#             raise ValueError
+#         agents_count=len(agents_arguments)
+#     if type(agents_arguments) == dict:
+#         agents_arguments=[agents_arguments for _ in range(agents_count)]
+
+#     #init network
+#     if type(network) == dict or network is None:
+#         network = ilm.networks.network(agents_count=agents_count,args=network)
     
-    states=possible_states(agents_arguments)
-    transition_matrix=np.array([
-        [transition_probability(prestate, poststate, network, agents_arguments) for prestate in states] for poststate in states
-    ])
-    transition_matrix=transition_matrix.reshape([arg["data_size"]+1 for arg in agents_arguments]*2)
-    return transition_matrix
+#     states=possible_states(agents_arguments)
+#     transition_matrix=np.array([
+#         [transition_probability(prestate, poststate, network, agents_arguments) for prestate in states] for poststate in states
+#     ])
+#     transition_matrix=transition_matrix.reshape([arg["data_size"]+1 for arg in agents_arguments]*2)
+#     return transition_matrix
 def transition_matrix(
     agents_arguments,
+    agent_type,
     agents_count=None,
     network=None,
 ):
@@ -80,7 +96,7 @@ def transition_matrix(
     transition_matrix=np.empty([arg["data_size"]+1 for arg in agents_arguments]*2)
     for prestate in (itertools.product(*[range(arg["data_size"]+1) for arg in agents_arguments])):
         for poststate in itertools.product(*[range(arg["data_size"]+1) for arg in agents_arguments]):
-            transition_matrix[poststate+prestate]=transition_probability(prestate, poststate, network, agents_arguments)
+            transition_matrix[poststate+prestate]=transition_probability(prestate, poststate, network, agents_arguments, agent_type)
 
     return transition_matrix
 
@@ -136,17 +152,17 @@ if __name__ == "__main__":#テスト
         "outward_flow_rate":0.1,
         "is_torus":False
     })
-    print(network)
+
 
     m=transition_matrix(
         agents_arguments=agents_arguments,
         network=network
     )
+    import pdb; pdb.set_trace()
     new_variant_probability=get_new_variant_probability(
         agents_arguments=agents_arguments,
         network=network
     )
-    print(new_variant_probability)
     data_sizes=np.array([arg["data_size"] for arg in agents_arguments], dtype=int)
 
     simulation_count=10000

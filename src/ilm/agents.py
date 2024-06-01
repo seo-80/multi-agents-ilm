@@ -1,5 +1,12 @@
 import numpy 
 
+def agent(agent_type:str):
+    if agent_type=="BayesianFiniteVariantsAgent":
+        return BayesianFiniteVariantsAgent
+    elif agent_type=="BayesianFiniteVariantsAgent":
+        return BayesianInfiniteVariantsAgent
+    else:
+        raise ValueError(f"Unknown agent type: {agent_type}")
 
 class BayesianFiniteVariantsAgent:
     def __init__(self,data=None , alpha:float=0.0 ,data_size=None, variants_count=16, init_data_type="evenly"):
@@ -25,12 +32,11 @@ class BayesianFiniteVariantsAgent:
         self.__data=data
         if len(data.shape)>1:
             data=numpy.sum(data,axis=0)
-        tmp=numpy.array([(x+self.__alpha/self.__variants_count) for x in data])
-        self.__hypothesis=tmp/numpy.sum(tmp)
+        self.__hypothesis=numpy.array([(x+self.__alpha/self.__variants_count) for x in data])/(self.__data_size+self.__alpha)
     def produce(self , n=None):
-        if n is None:
-            n=self.__variants_count
-        return numpy.random.multinomial(n=n,pvals=self.__hypothesis)
+        # if n is None:
+        #     n=self.__variants_count
+        return numpy.random.multinomial(n=n, pvals=self.__hypothesis)
 
     @property
     def data_size(self) -> int:
