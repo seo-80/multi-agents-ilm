@@ -172,7 +172,7 @@ if __name__ == "__main__":#テスト
         init_state=np.zeros(agents_count,dtype=int);init_state[ai]=1
         states[tuple(init_state)]=new_variant_probability[ai]
 
-    print("simulating....")
+
     states_record=np.empty((simulation_count,)+states.shape)
     for i in tqdm.tqdm(range(simulation_count)):
         states_record[i]=states

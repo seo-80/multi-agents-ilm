@@ -6,15 +6,27 @@ from . import agents, networks, recorders, markov_chain
 
 
 def simulate(
-    simulation_count,
-    agent,
-    agents_count=None,
-    agents_arguments=None,
-    network=None,
-    network_args=None,
-    recorder="data",
-    simulate_type="markov_chain"
+    args,
 ):
+    simulation_count = args.get("simulation_count")
+    agent = args.get("agent")
+    agents_count = args.get("agents_count")
+    agents_arguments = args.get("agents_arguments")
+    network = args.get("network")
+    network_args = args.get("network_args")
+    recorder = args.get("recorder")
+    simulate_type = args.get("simulate_type")
+
+    if "nonzero_alpha" in agents_arguments.keys():
+        temp_arts = agents_arguments.copy()
+        if agents_arguments["nonzero_alpha"] == "evely":
+            temp_agents_arguments = [{"alpha": agents_arguments["alpha"], "data_size": agents_arguments["data_size"], "variants_count": agents_arguments["variants_count"]} for _ in range(agents_count)]
+        elif agents_arguments["nonzero_alpha"] == "center":
+            temp_agents_arguments = [{"alpha": 0, "data_size": agents_arguments["data_size"], "variants_count": agents_arguments["variants_count"]} for _ in range(agents_count)]
+            temp_agents_arguments[agents_count // 2]["alpha"] = agents_arguments["alpha"]
+        agents_arguments = temp_agents_arguments
+
+
     if simulate_type == "markov_chain":
         return simulate_markov_chain(
             simulation_count=simulation_count,
@@ -31,8 +43,8 @@ def simulate(
         agents_count=1
 
     #init network
-    if type(network) == dict or network is None:
-        network = networks.network(agents_count=agents_count,args=network_args)
+    if network is None:
+        network = networks.network(agents_count=agents_count, args=network_args)
 
     #init recorder
     if type(recorder) == str:
@@ -73,14 +85,11 @@ def simulate_markov_chain(
 
     if type(agents_arguments) == dict:
         agents_arguments = [agents_arguments for _ in range(agents_count)]
-
     m = markov_chain.transition_matrix(
         agents_arguments=agents_arguments,
         agent_type=agent,
         network=network,
     )
-    print("shape of m", m.shape)
-        
 
     states = np.zeros([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)])
     if agent == "BayesianFiniteVariantsAgent":
@@ -97,9 +106,9 @@ def simulate_markov_chain(
             init_state = np.zeros(agents_count, dtype=int)
             init_state[ai] = 1
             states[tuple(init_state)] = new_variant_probability[ai]
-    print("sum states", np.sum(states))
     
 
+    print(np.sum(states))
     for i in tqdm.tqdm(range(simulation_count)):
         recorder(states=states)
         states = np.tensordot(m, states, axes=(range(agents_count, agents_count * 2), range(agents_count)))
