@@ -43,9 +43,17 @@ defalut_args = {
     "simulate_type": "markov_chain"
 }
 
+agents_arguments = {
+    "alpha":alpha,
+    "data_size":data_size,
+    "variants_count":variants_count,
+    "nonzero_alpha":"center"
+}
+
 unique_args = {
-    "simulation_count": [100, 100000, 10000000],
-    "simulate_type":["monte_carlo"]
+    # "simulation_count": [100, 100000, 10000000],
+    # "simulate_type":["monte_carlo"],
+    agents_arguments: [agents_arguments],
 }
 setting_count = np.prod([len(unique_args[key]) for key in unique_args.keys()])
 
