@@ -53,14 +53,14 @@ class DataRecorder(Recorder):
     @property
     def distance(self):
         if self.__distance is None:
-            self.__distance = numpy.array([[[numpy.abs(agenti-agentj).sum() for agenti in self._Recorder__return_record[t]] for agentj in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
+            self.compute_distance()
         return self.__distance
     
     @property
     def simulation_count(self):
         return self._Recorder__simulation_count
-    def compute_distance(self,**kwargs):
-        return numpy.array([[numpy.abs(agenti.data-agentj.data).sum() for agenti in kwargs["agents"]] for agentj in kwargs["agents"]])
+    def compute_distance(self):
+        self.__distance = numpy.array([[[numpy.abs(agenti-agentj).sum() for agenti in self._Recorder__return_record[t]] for agentj in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
 
 class DataRecorderStateVec(Recorder):
     def __init__(self,simulation_count,data_shape=None, distances_matrix=None):
@@ -72,16 +72,17 @@ class DataRecorderStateVec(Recorder):
         return numpy.array(kwargs["states"])
     
 
-    
+    def compute_distance(self):
+        agents_count = len(self._Recorder__return_record.shape) - 1
+        if self.distances_matrix is None:
+            self.distances_matrix = numpy.empty((agents_count,) * 2 + self._Recorder__return_record.shape[1:])
+            for index in itertools.product(*[range(ds) for ds in self.distances_matrix.shape]):
+                self.distances_matrix[index] = abs(index[index[0] + 2] - index[index[1] + 2])
+        self.__distance = numpy.tensordot(self.distances_matrix,self._Recorder__return_record, axes=(range(2, agents_count + 2), range(1, agents_count + 1)))
     @property
     def distance(self):
         if self.__distance is None:
-            agents_count = len(self._Recorder__return_record.shape) - 1
-            if self.distances_matrix is None:
-                self.distances_matrix = numpy.empty((agents_count,) * 2 + self._Recorder__return_record.shape[1:])
-                for index in itertools.product(*[range(ds) for ds in self.distances_matrix.shape]):
-                    self.distances_matrix[index] = abs(index[index[0] + 2] - index[index[1] + 2])
-            self.__distance = numpy.tensordot(self.distances_matrix,self._Recorder__return_record, axes=(range(2, agents_count + 2), range(1, agents_count + 1)))
+            self.compute_distance()
         return self.__distance
         # return numpy.tensordot( self.distances_matrix,self._Recorder__return_record, axes=(range(2, agents_count + 2), range(1, agents_count + 1)))
 

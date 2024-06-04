@@ -2,10 +2,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pickle
+import pathlib
 
 import ilm
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
+DATA_DIR = str(pathlib.Path("~/OneDrive - Kyushu University/SekiLabo/res_language/ilm/data").expanduser())
 
 # 引数の定義
 
@@ -15,7 +17,7 @@ data_size = 1
 variants_count = 2
 alpha = 1
 simulation_count = 10000
-nonzero_alpha = "center"  # "evely" or "center"
+nonzero_alpha = "evely"  # "evely" or "center"
 # if nonzero_alpha == "evely":
 #     agents_arguments = [{"alpha": alpha, "data_size": data_size, "variants_count": variants_count} for _ in range(agents_count)]
 # elif nonzero_alpha == "center":
@@ -71,7 +73,11 @@ for i in range(setting_count):
         with open(file_path, "rb") as f:
             recs.append(pickle.load(f))
     else:
-        recs.append(ilm.simulate(args[i]))
+        rec = ilm.simulate(
+            args[i]
+        )
+        rec.compute_distance()
+        recs.append(rec)
         with open(file_path, "wb") as f:
             pickle.dump(recs[i], f)
 
