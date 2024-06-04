@@ -16,6 +16,7 @@ def simulate(
     network_args = args.get("network_args")
     recorder = args.get("recorder")
     simulate_type = args.get("simulate_type")
+    initial_states = args.get("initial_states")
 
     if "nonzero_alpha" in agents_arguments.keys():
         temp_arts = agents_arguments.copy()
@@ -35,7 +36,8 @@ def simulate(
             agents_arguments=agents_arguments,
             network=network,
             network_args=network_args,
-            recorder=recorder
+            recorder=recorder,
+            initial_states=initial_states,
         )
     if type(agent) == str:
         agent = agents.agent(agent)
@@ -90,23 +92,24 @@ def simulate_markov_chain(
         agent_type=agent,
         network=network,
     )
-
-    states = np.zeros([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)])
-    if agent == "BayesianFiniteVariantsAgent":
-        for ai in range(agents_count):
-            init_state = np.zeros(agents_count, dtype=int)
-            init_state[ai] = 1
-            states[tuple(init_state)] = 1/agents_count
-    elif agent == "BayesianInfiniteVariantsAgent":
-        new_variant_probability = markov_chain.get_new_variant_probability(
-            agents_arguments=agents_arguments,
-            network=network 
-        )
-        for ai in range(agents_count):
-            init_state = np.zeros(agents_count, dtype=int)
-            init_state[ai] = 1
-            states[tuple(init_state)] = new_variant_probability[ai]
-    
+    if initial_states is None:
+        states = np.zeros([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)])
+        if agent == "BayesianFiniteVariantsAgent":
+            for ai in range(agents_count):
+                init_state = np.zeros(agents_count, dtype=int)
+                init_state[ai] = 1
+                states[tuple(init_state)] = 1/agents_count
+        elif agent == "BayesianInfiniteVariantsAgent":
+            new_variant_probability = markov_chain.get_new_variant_probability(
+                agents_arguments=agents_arguments,
+                network=network 
+            )
+            for ai in range(agents_count):
+                init_state = np.zeros(agents_count, dtype=int)
+                init_state[ai] = 1
+                states[tuple(init_state)] = new_variant_probability[ai]
+    else:
+        states = initial_states
 
     print(np.sum(states))
     for i in tqdm.tqdm(range(simulation_count)):
