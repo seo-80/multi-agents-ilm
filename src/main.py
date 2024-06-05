@@ -7,8 +7,8 @@ import pickle
 import ilm
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
-
-DATA_DIR = os.environ['HOME'] + "/OneDrive - Kyushu University/SekiLabo/res_language/ilm/data"
+# 事前に環境変数ONEDRIVEを設定しておく
+DATA_DIR = os.environ['ONEDRIVE'] + "/SekiLabo/res_language/ilm/data"
 # 引数の定義
 
 
