@@ -73,6 +73,7 @@ def simulate_markov_chain(
     network=None,
     network_args=None,
     recorder="data",
+    initial_states=None,
 ):
     if not type(agent) == str:
         raise ValueError("agent must be a string if simulate_type is 'markov_chain'")
@@ -95,10 +96,12 @@ def simulate_markov_chain(
     if initial_states is None:
         states = np.zeros([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)])
         if agent == "BayesianFiniteVariantsAgent":
-            for ai in range(agents_count):
-                init_state = np.zeros(agents_count, dtype=int)
-                init_state[ai] = 1
-                states[tuple(init_state)] = 1/agents_count
+            init_state = np.zeros(agents_count, dtype=int)
+            states[tuple(init_state)] = 1
+            # for ai in range(agents_count):
+            #     init_state = np.zeros(agents_count, dtype=int)
+            #     init_state[ai] = 1
+            #     states[tuple(init_state)] = 1/agents_count
         elif agent == "BayesianInfiniteVariantsAgent":
             new_variant_probability = markov_chain.get_new_variant_probability(
                 agents_arguments=agents_arguments,

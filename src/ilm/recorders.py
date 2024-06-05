@@ -78,7 +78,7 @@ class DataRecorderStateVec(Recorder):
             self.distances_matrix = numpy.empty((agents_count,) * 2 + self._Recorder__return_record.shape[1:])
             for index in itertools.product(*[range(ds) for ds in self.distances_matrix.shape]):
                 self.distances_matrix[index] = abs(index[index[0] + 2] - index[index[1] + 2])
-        self.__distance = numpy.tensordot(self.distances_matrix,self._Recorder__return_record, axes=(range(2, agents_count + 2), range(1, agents_count + 1)))
+        self.__distance = numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
     @property
     def distance(self):
         if self.__distance is None:
