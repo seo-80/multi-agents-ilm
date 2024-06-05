@@ -2,13 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pickle
-import pathlib
+
 
 import ilm
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
-DATA_DIR = str(pathlib.Path("~/OneDrive - Kyushu University/SekiLabo/res_language/ilm/data").expanduser())
 
+DATA_DIR = os.environ['HOME'] + "/OneDrive - Kyushu University/SekiLabo/res_language/ilm/data"
 # 引数の定義
 
 
@@ -50,10 +50,11 @@ agents_arguments = {
     "nonzero_alpha":"center"
 }
 
+
 unique_args = {
     # "simulation_count": [100, 100000, 10000000],
     # "simulate_type":["monte_carlo"],
-    agents_arguments: [agents_arguments],
+    "agents_arguments": [agents_arguments],
 }
 setting_count = np.prod([len(unique_args[key]) for key in unique_args.keys()])
 
@@ -75,6 +76,7 @@ for i in range(setting_count):
     setting_name = ''
     for key in unique_args.keys():
             setting_name += f"{key}_{args[i][key]}_"
+    setting_name = setting_name.replace(":","_")
     file_path = DATA_DIR + '/raw/' +setting_name +".pkl"
 
     if os.path.exists(file_path):
@@ -120,20 +122,26 @@ for i in range(setting_count):
 
 
 # print(recs[0].distance)
-fig, ax = plt.subplots(setting_count)
-if setting_count == 1:
-    ax = [ax]
-for i in range(setting_count):
-    ax[i].invert_yaxis()
-    ax[i].pcolor(plt_data[i])
-    ax[i].set_aspect('equal')
+# fig, ax = plt.subplots(setting_count)
+# if setting_count == 1:
+#     ax = [ax]
+# for i in range(setting_count):
+#     ax[i].invert_yaxis()
+#     ax[i].pcolor(plt_data[i])
+#     ax[i].set_aspect('equal')
 # ax[0].invert_yaxis()
 # ax[0].pcolor(rec[1000:].mean(axis=0))
 # ax[0].set_aspect('equal')
 # ax[1].invert_yaxis()
 # ax[1].pcolor(rec2.sum(axis=0))
 # ax[1].set_aspect('equal')
-plt.savefig(DATA_DIR + "/distance/finite_vs_infinite_variants.png")
-plt.show()
+# plt.savefig(DATA_DIR + "/distance/finite_vs_infinite_variants.png")
+# plt.show()
 
-
+fig_num = 10
+fig, ax = plt.subplots(fig_num)
+for i in range(fig_num):
+    ax[i].invert_yaxis()
+    ax[i].pcolor(recs[0].distance[i*1000])
+    ax[i].set_aspect('equal')
+plt.show()   
