@@ -35,7 +35,7 @@ def network(agents_count, args=None):
 
 
 
-
+    print(return_network)
     return return_network
 
 def generate_data_flow_count(data_flow_rate,total_data_count=None,total_data_counts=None):

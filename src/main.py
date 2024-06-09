@@ -37,24 +37,28 @@ defalut_args = {
     "agents_arguments": agents_arguments,
     "network_args": {
         "bidirectional_flow_rate": 0.005,
-        "is_torus": False
     },
     "recorder": "data",
     "simulate_type": "markov_chain"
 }
 
-agents_arguments = {
+agents_arguments = [{
+    # "alpha":1/7,
     "alpha":alpha,
     "data_size":data_size,
     "variants_count":variants_count,
-    "nonzero_alpha":"center"
-}
+    "nonzero_alpha":"evely"
+} for alpha in np.linspace(0.01, 0.1, 10)]
 
-
+network_args = [{
+    "outward_flow_rate": fr,
+} for fr in np.linspace(0.01, 0.1, 10)]
 unique_args = {
-    # "simulation_count": [100, 100000, 10000000],
+    "simulation_count": [ 100000],
     # "simulate_type":["monte_carlo"],
-    "agents_arguments": [agents_arguments],
+    "agent": [ "BayesianInfiniteVariantsAgent"],
+    "agents_arguments": agents_arguments,
+    "network_args": network_args,
 }
 setting_count = np.prod([len(unique_args[key]) for key in unique_args.keys()])
 
@@ -65,7 +69,6 @@ for i in range(setting_count):
 
 
 
-print(args)
 
 recorder = "data"
 
@@ -119,16 +122,24 @@ for i in range(setting_count):
             raise ValueError("simulate_type must be 'monte_carlo'")
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
-
+def is_concentric_distribution(expected_distance):
+    for base in range(len(expected_distance)//2-1):
+        for reference in range(len(expected_distance)):
+            if expected_distance[base][reference] < expected_distance[base][len(expected_distance)//2] and reference > len(expected_distance)//2:
+                return True
+    return False
 
 # print(recs[0].distance)
-# fig, ax = plt.subplots(setting_count)
-# if setting_count == 1:
-#     ax = [ax]
-# for i in range(setting_count):
-#     ax[i].invert_yaxis()
-#     ax[i].pcolor(plt_data[i])
-#     ax[i].set_aspect('equal')
+fig, ax = plt.subplots(setting_count)
+if setting_count == 1:
+    ax = [ax]
+for i in range(setting_count):
+    if is_concentric_distribution(plt_data[i]):
+        print("concentric setting", args[i])
+        print(plt_data[i])
+    ax[i].invert_yaxis()
+    ax[i].pcolor(plt_data[i])
+    ax[i].set_aspect('equal')
 # ax[0].invert_yaxis()
 # ax[0].pcolor(rec[1000:].mean(axis=0))
 # ax[0].set_aspect('equal')
@@ -136,12 +147,12 @@ for i in range(setting_count):
 # ax[1].pcolor(rec2.sum(axis=0))
 # ax[1].set_aspect('equal')
 # plt.savefig(DATA_DIR + "/distance/finite_vs_infinite_variants.png")
-# plt.show()
+plt.show()
 
-fig_num = 10
-fig, ax = plt.subplots(fig_num)
-for i in range(fig_num):
-    ax[i].invert_yaxis()
-    ax[i].pcolor(recs[0].distance[i*1000])
-    ax[i].set_aspect('equal')
-plt.show()   
+# fig_num = 10
+# fig, ax = plt.subplots(fig_num)
+# for i in range(fig_num):
+#     ax[i].invert_yaxis()
+#     ax[i].pcolor(recs[0].distance[i*1000])
+#     ax[i].set_aspect('equal')
+# plt.show()   
