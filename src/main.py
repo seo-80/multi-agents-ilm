@@ -5,12 +5,20 @@ import pickle
 
 
 import ilm
+SAVE_RESULT = True
+LOAD_RESULT = True
+PLOT_RESULT = True
+SAVE_STATES = False  # Set to True to save raw simulation data
+SAVE_DISTANCES = False  # Set to True to save distance matrices
+SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
+
+PLOT_STYLE = "grid"  # Options: "grid" or "line"
+
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
 # 事前に環境変数ONEDRIVEを設定しておく
 DATA_DIR = os.environ['ONEDRIVE'] + "/SekiLabo/res_language/ilm/data"
 # 引数の定義
-
 
 agents_count = 7
 data_size = 1
@@ -48,11 +56,10 @@ agents_arguments = [{
     "data_size":data_size,
     "variants_count":variants_count,
     "nonzero_alpha":"evely"
-} for alpha in np.linspace(0.01, 0.1, 10)]
-
+} for alpha in np.linspace(0.0001, 0.01, 5)]
 network_args = [{
     "outward_flow_rate": fr,
-} for fr in np.linspace(0.01, 0.1, 10)]
+} for fr in np.linspace(0.01, 1, 5)]
 unique_args = {
     "simulation_count": [ 100000],
     # "simulate_type":["monte_carlo"],
@@ -60,8 +67,48 @@ unique_args = {
     "agents_arguments": agents_arguments,
     "network_args": network_args,
 }
+#データ数100
+unique_args = {
+    "simulation_count": [ 100000],
+    "agents_count": [15],
+    "simulate_type":["monte_carlo"],
+    "agent": [ "BayesianFiniteVariantsAgent"],
+    "agents_arguments": [{
+    # "alpha":1/7,
+    "alpha":0.01,
+    "data_size":100,
+    "variants_count":128,
+    "nonzero_alpha":"evely"
+},{
+    # "alpha":1/7,
+    "alpha":0.01,
+    "data_size":100,
+    "variants_count":128,
+    "nonzero_alpha":"center"
+} ],
+    "network_args": [{
+    "bidirectional_flow_rate": 0.01,
+}, {
+    "outward_flow_rate": 0.01,
+}
+],
+}
+# unique_args = {
+#     "simulation_count": [ 100],
+#     "agent": [ "BayesianInfiniteVariantsAgent"],
+#     "agents_arguments": [{
+#     "alpha":1,
+#     "data_size":data_size,
+#     "variants_count":variants_count,
+#     "nonzero_alpha":nonzero_alpha
+# } ],
+#     "agents_count": [3],
+#     "network_args": [{
+#     "outward_flow_rate": 0.1,
+#     }],
+#     "initial_states": [None, np.array([1, 1, 1])],
+# }
 setting_count = np.prod([len(unique_args[key]) for key in unique_args.keys()])
-
 args = [defalut_args.copy() for _ in range(setting_count)]
 for i in range(setting_count):
     for ki, key in enumerate(unique_args.keys()):
@@ -81,27 +128,29 @@ for i in range(setting_count):
             setting_name += f"{key}_{args[i][key]}_"
     setting_name = setting_name.replace(":","_")
     file_path = DATA_DIR + '/raw/' +setting_name +".pkl"
-
-    if os.path.exists(file_path):
+    if LOAD_RESULT and os.path.exists(file_path):
+        print('load', setting_name)
         with open(file_path, "rb") as f:
             recs.append(pickle.load(f))
     else:
+        print('simulate', setting_name)
         rec = ilm.simulate(
             args[i]
         )
         rec.compute_distance()
         recs.append(rec)
+    if SAVE_RESULT:
+        if not SAVE_STATES:
+            recs[i].__return_record = None
+        if not SAVE_DISTANCES:
+            recs[i].__distance = None
+        if not SAVE_EX_DISTANCE:
+            recs[i].__expected_distance = None
         with open(file_path, "wb") as f:
             pickle.dump(recs[i], f)
 
-# recs = [
-#     ilm.simulate(
-#         args[i]
-#     ) for i in range(setting_count)
-# ]
-# pickle.dump(rec, open(DATA_DIR + "/distance/finite_variants.pkl", "wb"))
-# pickle.dump(rec2, open(DATA_DIR + "/distance/infinite_variants.pkl", "wb"))
-
+for i in range(10):
+    print(f'time{i}:{np.sum(recs[0].distance[:i], axis=0)[0,1]/2 + recs[1].distance[i][0,1]/2}')
 
 
 
@@ -122,6 +171,8 @@ for i in range(setting_count):
             raise ValueError("simulate_type must be 'monte_carlo'")
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
+
+
 def is_concentric_distribution(expected_distance):
     for base in range(len(expected_distance)//2-1):
         for reference in range(len(expected_distance)):
@@ -130,24 +181,28 @@ def is_concentric_distribution(expected_distance):
     return False
 
 # print(recs[0].distance)
-fig, ax = plt.subplots(setting_count)
-if setting_count == 1:
-    ax = [ax]
-for i in range(setting_count):
-    if is_concentric_distribution(plt_data[i]):
-        print("concentric setting", args[i])
-        print(plt_data[i])
-    ax[i].invert_yaxis()
-    ax[i].pcolor(plt_data[i])
-    ax[i].set_aspect('equal')
-# ax[0].invert_yaxis()
-# ax[0].pcolor(rec[1000:].mean(axis=0))
-# ax[0].set_aspect('equal')
-# ax[1].invert_yaxis()
-# ax[1].pcolor(rec2.sum(axis=0))
-# ax[1].set_aspect('equal')
-# plt.savefig(DATA_DIR + "/distance/finite_vs_infinite_variants.png")
-plt.show()
+if PLOT_STYLE == "grid":
+    setting_counts = [len(unique_args[key]) for key in unique_args.keys() if len(unique_args[key])>1]
+    fig, ax = plt.subplots(*setting_counts, figsize=(5, 5) if setting_count > 1 else (5, 5))
+    
+    if setting_count == 1:
+        ax = [ax]
+    for i, j in np.ndindex(ax.shape):
+        ax[i, j].invert_yaxis()
+        ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
+        ax[i, j].set_aspect('equal')
+        ax[i, j].get_xaxis().set_visible(False)
+        ax[i, j].get_yaxis().set_visible(False)
+    plt.show()
+if PLOT_STYLE == "line":
+    fig, ax = plt.subplots(setting_count)
+    if setting_count == 1:
+        ax = [ax]
+    for i in range(setting_count):
+        ax[i].plot(plt_data[i])
+        ax[i].get_xaxis().set_visible(False)
+        ax[i].get_yaxis().set_visible(False)
+    plt.show()
 
 # fig_num = 10
 # fig, ax = plt.subplots(fig_num)

@@ -25,6 +25,8 @@ def simulate(
         elif agents_arguments["nonzero_alpha"] == "center":
             temp_agents_arguments = [{"alpha": 0, "data_size": agents_arguments["data_size"], "variants_count": agents_arguments["variants_count"]} for _ in range(agents_count)]
             temp_agents_arguments[agents_count // 2]["alpha"] = agents_arguments["alpha"]
+        else:
+            raise ValueError("nonzero_alpha must be 'evely' or 'center'")
         agents_arguments = temp_agents_arguments
 
 
@@ -93,8 +95,8 @@ def simulate_markov_chain(
         agent_type=agent,
         network=network,
     )
+    states = np.zeros([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)])
     if initial_states is None:
-        states = np.zeros([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)])
         if agent == "BayesianFiniteVariantsAgent":
             init_state = np.zeros(agents_count, dtype=int)
             states[tuple(init_state)] = 1
@@ -112,7 +114,10 @@ def simulate_markov_chain(
                 init_state[ai] = 1
                 states[tuple(init_state)] = new_variant_probability[ai]
     else:
-        states = initial_states
+        if len(initial_states) == agents_count:
+            states[tuple(initial_states)] = 1
+        if initial_states.shape == tuple([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)]):
+            states = initial_states
 
     print(np.sum(states))
     for i in tqdm.tqdm(range(simulation_count)):

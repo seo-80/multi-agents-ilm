@@ -67,18 +67,23 @@ class DataRecorderStateVec(Recorder):
         super().__init__(simulation_count=simulation_count,data_shape=data_shape)
         self.distances_matrix = distances_matrix
         self.__distance = None
+        self.__expected_distance = None
     
     def fileter_function(self,**kwargs):
         return numpy.array(kwargs["states"])
     
 
+
     def compute_distance(self):
         agents_count = len(self._Recorder__return_record.shape) - 1
-        if self.distances_matrix is None:
-            self.distances_matrix = numpy.empty((agents_count,) * 2 + self._Recorder__return_record.shape[1:])
-            for index in itertools.product(*[range(ds) for ds in self.distances_matrix.shape]):
-                self.distances_matrix[index] = abs(index[index[0] + 2] - index[index[1] + 2])
-        self.__distance = numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
+        if self.__distance is None:
+            if self.distances_matrix is None:
+                self.distances_matrix = numpy.empty((agents_count,) * 2 + self._Recorder__return_record.shape[1:])
+                for index in itertools.product(*[range(ds) for ds in self.distances_matrix.shape]):
+                    self.distances_matrix[index] = abs(index[index[0] + 2] - index[index[1] + 2])
+            self.__distance = numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
+        if self.__expected_distance is None:
+            self.__expected_distance = numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
     @property
     def distance(self):
         if self.__distance is None:
