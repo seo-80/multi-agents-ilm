@@ -6,13 +6,14 @@ import pickle
 
 import ilm
 SAVE_RESULT = True
-LOAD_RESULT = True
+LOAD_RESULT = False
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
-SAVE_DISTANCES = False  # Set to True to save distance matrices
+SAVE_DISTANCES = True  # Set to True to save distance matrices
 SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
 
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
+PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
 
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
@@ -69,10 +70,10 @@ unique_args = {
 }
 #データ数100
 unique_args = {
-    "simulation_count": [ 100000],
+    "simulation_count": [ 1000000],
     "agents_count": [15],
     "simulate_type":["monte_carlo"],
-    "agent": [ "BayesianFiniteVariantsAgent"],
+    "agent": [ "BayesianInfiniteVariantsAgent"],
     "agents_arguments": [{
     # "alpha":1/7,
     "alpha":0.01,
@@ -121,7 +122,8 @@ recorder = "data"
 
 
 setting_count = len(args)
-recs = []
+
+plt_data = []
 for i in range(setting_count):
     setting_name = ''
     for key in unique_args.keys():
@@ -131,48 +133,46 @@ for i in range(setting_count):
     if LOAD_RESULT and os.path.exists(file_path):
         print('load', setting_name)
         with open(file_path, "rb") as f:
-            recs.append(pickle.load(f))
+            rec = pickle.load(f)
     else:
         print('simulate', setting_name)
         rec = ilm.simulate(
             args[i]
         )
         rec.compute_distance()
-        recs.append(rec)
     if SAVE_RESULT:
         if not SAVE_STATES:
-            recs[i].__return_record = None
+            rec.__return_record = None
         if not SAVE_DISTANCES:
-            recs[i].__distance = None
+            rec.__distance = None
         if not SAVE_EX_DISTANCE:
-            recs[i].__expected_distance = None
+            rec.__expected_distance = None
         with open(file_path, "wb") as f:
-            pickle.dump(recs[i], f)
-
-for i in range(10):
-    print(f'time{i}:{np.sum(recs[0].distance[:i], axis=0)[0,1]/2 + recs[1].distance[i][0,1]/2}')
+            pickle.dump(rec, f)
 
 
 
 
-plt_data = []
-for i in range(setting_count):
+
     if args[i]["agent"] == "BayesianFiniteVariantsAgent":
         if args[i]["simulate_type"] == "markov_chain":
-            plt_data.append(recs[i].distance[-1]*variants_count)
+            plt_data.append(rec.distance[-1]*variants_count)
         elif args[i]["simulate_type"] == "monte_carlo":
-            plt_data.append(np.mean(recs[i].distance[recs[i].simulation_count//10:], axis=0))
+            plt_data.append(np.mean(rec.distance[rec.simulation_count//10:], axis=0))
         else:
             raise ValueError("simulate_type must be 'markov_chain' or 'monte_carlo'")
     elif args[i]["agent"] == "BayesianInfiniteVariantsAgent":
         if args[i]["simulate_type"] == "markov_chain":
-            plt_data.append(np.sum(recs[i].distance, axis=0))
-        else:
-            raise ValueError("simulate_type must be 'monte_carlo'")
+            plt_data.append(np.sum(rec.distance, axis=0))
+        elif args[i]["simulate_type"] == "monte_carlo":
+            if PLOT_OBJS == "distance":
+                plt_data.append(np.mean(rec.distance[rec.simulation_count//10:], axis=0))
+            elif PLOT_OBJS == "oldness":
+                plt_data.append(np.mean(rec.oldness[rec.simulation_count//10:], axis=0))
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
 
-
+print(plt_data[0].shape)
 def is_concentric_distribution(expected_distance):
     for base in range(len(expected_distance)//2-1):
         for reference in range(len(expected_distance)):
@@ -188,11 +188,16 @@ if PLOT_STYLE == "grid":
     if setting_count == 1:
         ax = [ax]
     for i, j in np.ndindex(ax.shape):
-        ax[i, j].invert_yaxis()
-        ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
-        ax[i, j].set_aspect('equal')
-        ax[i, j].get_xaxis().set_visible(False)
-        ax[i, j].get_yaxis().set_visible(False)
+        if PLOT_OBJS == "distance":
+            ax[i, j].invert_yaxis()
+            ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
+            ax[i, j].set_aspect('equal')
+            ax[i, j].get_xaxis().set_visible(False)
+            ax[i, j].get_yaxis().set_visible(False)
+        elif PLOT_OBJS == "oldness":
+            ax[i, j].plot(plt_data[i*ax.shape[1]+j])
+            ax[i, j].get_xaxis().set_visible(False)
+            ax[i, j].get_yaxis().set_visible(False)
     plt.show()
 if PLOT_STYLE == "line":
     fig, ax = plt.subplots(setting_count)

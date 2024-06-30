@@ -1,5 +1,6 @@
 import numpy
 import itertools
+import collections
 
 
 def recorder(recorder_type=None, simulation_count=None):
@@ -18,14 +19,17 @@ def recorder(recorder_type=None, simulation_count=None):
 class Recorder:
     def __init__(self,simulation_count,data_shape=None, simularion_args = None):
         self.__simulation_count = simulation_count
-        if not simulation_count is None and not data_shape is None:
-            self.__return_record = numpy.empty(((simulation_count,)+ data_shape))
-        else:
-            self.__return_record = None
+        # if not simulation_count is None and not data_shape is None:
+        #     self.__return_record = numpy.empty(((simulation_count,)+ data_shape))
+        # else:
+        self.__return_record = None
         self.__i=0
         self.__simularion_args = simularion_args
+        self.__agent_type = None
         
     def __call__(self,**kwargs):
+        if self.__agent_type is None:
+            self.__agent_type = kwargs["agents"][0].__class__.__name__
         tmp_record=self.fileter_function(**kwargs)
         if self.__return_record is None:
             self.__return_record=numpy.empty((self.__simulation_count,)+tmp_record.shape)
@@ -46,6 +50,18 @@ class DataRecorder(Recorder):
     def __init__(self,simulation_count,data_shape=None):
         super().__init__(simulation_count=simulation_count,data_shape=data_shape)
         self.__distance = None
+        self.__oldness = None
+    def compute_oldness(self):
+        if self._Recorder__agent_type == "BayesianInfiniteVariantsAgent":
+            self.__oldness = numpy.array([[numpy.mean([t-d[0] for d in agent]) for agent in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
+        elif self._Recorder__agent_type == "BayesianFiniteVariantsAgent":
+            print('cant compute oldness for BayesianFiniteVariantsAgent')
+    
+    @property
+    def oldness(self):
+        if self.__oldness is None:
+            self.compute_oldness()
+        return self.__oldness
     
     def fileter_function(self,**kwargs):
         return numpy.array([agent.data for agent in kwargs["agents"]])
@@ -60,12 +76,19 @@ class DataRecorder(Recorder):
     def simulation_count(self):
         return self._Recorder__simulation_count
     def compute_distance(self):
-        self.__distance = numpy.array([[[numpy.abs(agenti-agentj).sum() for agenti in self._Recorder__return_record[t]] for agentj in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
+        self.compute_oldness()
+        if self._Recorder__agent_type == "BayesianInfiniteVariantsAgent":
+            collections_rec = [[collections.Counter([tuple(d) for d in agent]) for agent in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)]
+            temp_distance = numpy.array([[[sum(abs(agenti[k]-agentj[k]) for k in agenti.keys()) for agenti in collections_rec[t]] for agentj in collections_rec[t]] for t in range(self._Recorder__simulation_count)])
+            agents_count = temp_distance.shape[1]
+            self.__distance = numpy.array([[[temp_distance[(t, i,j)] + temp_distance[(t, j, i)] for i in range(agents_count)] for j in range(agents_count)] for t in range(self._Recorder__simulation_count)])
+        elif self._Recorder__agent_type == "BayesianFiniteVariantsAgent":
+            self.__distance = numpy.array([[[numpy.abs(agenti-agentj).sum() for agenti in self._Recorder__return_record[t]] for agentj in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
 
 class DataRecorderStateVec(Recorder):
     def __init__(self,simulation_count,data_shape=None, distances_matrix=None):
         super().__init__(simulation_count=simulation_count,data_shape=data_shape)
-        self.distances_matrix = distances_matrix
+        self.distances_matrix = distances_matrixs
         self.__distance = None
         self.__expected_distance = None
     

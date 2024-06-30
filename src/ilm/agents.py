@@ -3,7 +3,7 @@ import numpy
 def agent(agent_type:str):
     if agent_type=="BayesianFiniteVariantsAgent":
         return BayesianFiniteVariantsAgent
-    elif agent_type=="BayesianFiniteVariantsAgent":
+    elif agent_type=="BayesianInfiniteVariantsAgent":
         return BayesianInfiniteVariantsAgent
     else:
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -58,7 +58,7 @@ class BayesianFiniteVariantsAgent:
         return self.__variants_count
 
 class BayesianInfiniteVariantsAgent:
-    def __init__(self,agentgent_number=None,generation=None,data=None, alpha:float=0.0):
+    def __init__(self,agentgent_number=None,generation=None,data=None, alpha:float=0.0, data_size=None,):
         if agentgent_number==None:
             self.__agent_number=0
         else:
@@ -74,10 +74,11 @@ class BayesianInfiniteVariantsAgent:
             self.__data=numpy.array([[self.__generation, self.__agent_number, d] for d in data]).astype(numpy.uint8,casting='unsafe')
         else:
             self.__data=data
-        self.__data_size:numpy.uint8=len(data)
+        
+        self.__data_size:numpy.uint8=data_size
         self.__alpha=alpha
     def learn(self , data):
-        self.__data=data
+        self.__data= data
         self.__data_size=data.shape[0]
         self.__generation+=1
 
@@ -86,13 +87,27 @@ class BayesianInfiniteVariantsAgent:
         if n is None:
             n=self.__data_size
         new_word_count=numpy.random.binomial(n,self.__alpha/(self.__data_size+self.__alpha))
-        if new_word_count==0:
-            return self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :]
+        if self.__data is None:
+            return numpy.array([[self.__generation,self.__agent_number,i] for i in range(n)],dtype=numpy.uint8)#,casting="unsafe")
         else:
-            return numpy.concatenate([self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :], numpy.array([[self.__generation,self.__agent_number,i] for i in range(new_word_count)])],dtype=numpy.uint8,casting="unsafe")
+            if new_word_count==0:
+                return self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :]
+            else:
+                return numpy.concatenate([self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :], numpy.array([[self.__generation,self.__agent_number,i] for i in range(new_word_count)])],dtype=numpy.uint8,casting="unsafe")
 
+    @property
+    def hypothesis(self) -> numpy.array:
+        return self.__hypothesis
+    
     @property
     def data_size(self) -> int:
         return self.__data_size
+    @property
+    def data(self) -> numpy.array:
+        return self.__data
+    
+    @property
+    def variants_count(self) -> int:
+        return self.__variants_count
 
 

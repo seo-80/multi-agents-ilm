@@ -21,10 +21,17 @@ def simulate(
     if "nonzero_alpha" in agents_arguments.keys():
         temp_arts = agents_arguments.copy()
         if agents_arguments["nonzero_alpha"] == "evely":
-            temp_agents_arguments = [{"alpha": agents_arguments["alpha"], "data_size": agents_arguments["data_size"], "variants_count": agents_arguments["variants_count"]} for _ in range(agents_count)]
+            if 'Infinite' in agent:
+                temp_agents_arguments = [{"alpha": agents_arguments["alpha"], "data_size": agents_arguments["data_size"], "agentgent_number":i} for i in range(agents_count)]
+            else:
+                temp_agents_arguments = [{"alpha": agents_arguments["alpha"], "data_size": agents_arguments["data_size"], "variants_count": agents_arguments["variants_count"]} for _ in range(agents_count)]
         elif agents_arguments["nonzero_alpha"] == "center":
-            temp_agents_arguments = [{"alpha": 0, "data_size": agents_arguments["data_size"], "variants_count": agents_arguments["variants_count"]} for _ in range(agents_count)]
-            temp_agents_arguments[agents_count // 2]["alpha"] = agents_arguments["alpha"]
+            if 'Infinite' in agent:
+                temp_agents_arguments = [{"alpha": 0, "data_size": agents_arguments["data_size"], "agentgent_number":i} for i in range(agents_count)]
+                temp_agents_arguments[agents_count // 2]["alpha"] = agents_arguments["alpha"]
+            else:
+                temp_agents_arguments = [{"alpha": 0, "data_size": agents_arguments["data_size"], "variants_count": agents_arguments["variants_count"]} for _ in range(agents_count)]
+                temp_agents_arguments[agents_count // 2]["alpha"] = agents_arguments["alpha"]
         else:
             raise ValueError("nonzero_alpha must be 'evely' or 'center'")
         agents_arguments = temp_agents_arguments
@@ -60,11 +67,11 @@ def simulate(
     agents_list = [agent(**arg) for arg in agents_arguments]
     total_data_counts=[agent.data_size for agent in agents_list]
     for si in tqdm.trange(simulation_count):
-        recorder(agents=agents_list)
         data_flow_count=networks.generate_data_flow_count(network,total_data_counts=total_data_counts)
-        datas=generate_datas(agents=agents_list,data_flow_counts=data_flow_count)
+        datas=generate_datas(agents_list=agents_list,data_flow_counts=data_flow_count)
         for ai, agent in enumerate(agents_list):
             agent.learn(datas[ai])
+        recorder(agents=agents_list)
     return recorder
 
 def simulate_markov_chain(
@@ -119,7 +126,6 @@ def simulate_markov_chain(
         if initial_states.shape == tuple([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)]):
             states = initial_states
 
-    print(np.sum(states))
     for i in tqdm.tqdm(range(simulation_count)):
         recorder(states=states)
         states = np.tensordot(m, states, axes=(range(agents_count, agents_count * 2), range(agents_count)))
@@ -139,11 +145,23 @@ def simulate_markov_chain(
     return recorder
     
 
-def generate_datas(agents,data_flow_counts):
-    datas=np.zeros((len(agents),agents[0].variants_count))
-    for i,_ in enumerate(agents):
-        for j,learner in enumerate(agents):
-            datas[i]+=agents[j].produce(n=data_flow_counts[i][j])
-    return datas
+def generate_datas(agents_list,data_flow_counts):#todo generaize this function
+    if type(agents_list[0]) == agents.BayesianFiniteVariantsAgent:
+        datas=np.zeros((len(agents_list),agents_list[0].variants_count))
+        for i,_ in enumerate(agents_list):
+            for j,learner in enumerate(agents_list):
+                datas[i]+=agents_list[j].produce(n=data_flow_counts[i][j])
+        return datas
+    elif type(agents_list[0]) == agents.BayesianInfiniteVariantsAgent:
+        datas=[[] for _ in agents_list]
+        for i,_ in enumerate(agents_list):
+            for j,learner in enumerate(agents_list):
+                if data_flow_counts[i][j] > 0:
+                    if datas[i] == []:
+                        datas[i] = agents_list[j].produce(n=data_flow_counts[i][j])
+                    else:
+                        datas[i] = np.concatenate((datas[i], agents_list[j].produce(n=data_flow_counts[i][j])))
+                        # datas[i] = concat(datas[i], agents_list[j].produce(n=data_flow_counts[i][j]))
+        return np.array(datas)
         
         
