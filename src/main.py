@@ -4,13 +4,18 @@ import os
 import pickle
 
 
+
 import ilm
+import data_manager
+
+# 引数の定義
 SAVE_RESULT = True
 LOAD_RESULT = False
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
 SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
+SAVE_KEYS = ["distance", "oldness", "expected_distance"]
 
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
@@ -70,7 +75,7 @@ unique_args = {
 }
 #データ数100
 unique_args = {
-    "simulation_count": [ 1000000],
+    "simulation_count": [ 100],
     "agents_count": [15],
     "simulate_type":["monte_carlo"],
     "agent": [ "BayesianInfiniteVariantsAgent"],
@@ -147,8 +152,7 @@ for i in range(setting_count):
             rec.__distance = None
         if not SAVE_EX_DISTANCE:
             rec.__expected_distance = None
-        with open(file_path, "wb") as f:
-            pickle.dump(rec, f)
+        data_manager.save_obj(rec, DATA_DIR + '/raw/' + setting_name, SAVE_KEYS, style="separete")
 
 
 

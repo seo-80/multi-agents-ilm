@@ -51,12 +51,26 @@ class DataRecorder(Recorder):
         super().__init__(simulation_count=simulation_count,data_shape=data_shape)
         self.__distance = None
         self.__oldness = None
+        self.__expected_distance = None
     def compute_oldness(self):
         if self._Recorder__agent_type == "BayesianInfiniteVariantsAgent":
             self.__oldness = numpy.array([[numpy.mean([t-d[0] for d in agent]) for agent in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
         elif self._Recorder__agent_type == "BayesianFiniteVariantsAgent":
             print('cant compute oldness for BayesianFiniteVariantsAgent')
+
+    def keys(self):
+        return ["oldness","distance","expected_distance","record"]
     
+    def __getitem__(self,key):
+        if key == "oldness":
+            return self.oldness
+        elif key == "distance":
+            return self.distance
+        elif key == "expected_distance":
+            return self.expected_distance
+        else:
+            raise ValueError(f"Unknown key: {key}")
+
     @property
     def oldness(self):
         if self.__oldness is None:
@@ -65,7 +79,13 @@ class DataRecorder(Recorder):
     
     def fileter_function(self,**kwargs):
         return numpy.array([agent.data for agent in kwargs["agents"]])
-    
+    @property
+    def expected_distance(self):
+        if self.__expected_distance is None:
+            self.compute_distance()
+        return self.__expected_distance
+        
+
     @property
     def distance(self):
         if self.__distance is None:
@@ -82,9 +102,10 @@ class DataRecorder(Recorder):
             temp_distance = numpy.array([[[sum(abs(agenti[k]-agentj[k]) for k in agenti.keys()) for agenti in collections_rec[t]] for agentj in collections_rec[t]] for t in range(self._Recorder__simulation_count)])
             agents_count = temp_distance.shape[1]
             self.__distance = numpy.array([[[temp_distance[(t, i,j)] + temp_distance[(t, j, i)] for i in range(agents_count)] for j in range(agents_count)] for t in range(self._Recorder__simulation_count)])
+            self.__expected_distance = numpy.sum(self.__distance, axis=0)
         elif self._Recorder__agent_type == "BayesianFiniteVariantsAgent":
             self.__distance = numpy.array([[[numpy.abs(agenti-agentj).sum() for agenti in self._Recorder__return_record[t]] for agentj in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
-
+            self.__expected_distance = numpy.mean(self.__distance[self.simulation_count//10:], axis=0)            
 class DataRecorderStateVec(Recorder):
     def __init__(self,simulation_count,data_shape=None, distances_matrix=None):
         super().__init__(simulation_count=simulation_count,data_shape=data_shape)
