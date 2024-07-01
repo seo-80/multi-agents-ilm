@@ -10,7 +10,7 @@ import data_manager
 
 # 引数の定義
 SAVE_RESULT = True
-LOAD_RESULT = False
+LOAD_RESULT = True
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
@@ -135,10 +135,11 @@ for i in range(setting_count):
             setting_name += f"{key}_{args[i][key]}_"
     setting_name = setting_name.replace(":","_")
     file_path = DATA_DIR + '/raw/' +setting_name +".pkl"
-    if LOAD_RESULT and os.path.exists(file_path):
+    dir_path = DATA_DIR + '/raw/' +setting_name
+    if LOAD_RESULT and (os.path.exists(file_path) or os.path.exists(dir_path)):
         print('load', setting_name)
-        with open(file_path, "rb") as f:
-            rec = pickle.load(f)
+        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name)
+        print(rec.keys())
     else:
         print('simulate', setting_name)
         rec = ilm.simulate(
@@ -146,12 +147,12 @@ for i in range(setting_count):
         )
         rec.compute_distance()
     if SAVE_RESULT:
-        if not SAVE_STATES:
-            rec.__return_record = None
-        if not SAVE_DISTANCES:
-            rec.__distance = None
-        if not SAVE_EX_DISTANCE:
-            rec.__expected_distance = None
+        # if not SAVE_STATES:
+        #     rec.__return_record = None
+        # if not SAVE_DISTANCES:
+        #     rec.__distance = None
+        # if not SAVE_EX_DISTANCE:
+        #     rec.__expected_distance = None
         data_manager.save_obj(rec, DATA_DIR + '/raw/' + setting_name, SAVE_KEYS, style="separete")
 
 
@@ -162,7 +163,7 @@ for i in range(setting_count):
         if args[i]["simulate_type"] == "markov_chain":
             plt_data.append(rec.distance[-1]*variants_count)
         elif args[i]["simulate_type"] == "monte_carlo":
-            plt_data.append(np.mean(rec.distance[rec.simulation_count//10:], axis=0))
+            plt_data.append(np.mean(rec.distance[args[i]["simulation_count"]//10:], axis=0))
         else:
             raise ValueError("simulate_type must be 'markov_chain' or 'monte_carlo'")
     elif args[i]["agent"] == "BayesianInfiniteVariantsAgent":
@@ -170,9 +171,9 @@ for i in range(setting_count):
             plt_data.append(np.sum(rec.distance, axis=0))
         elif args[i]["simulate_type"] == "monte_carlo":
             if PLOT_OBJS == "distance":
-                plt_data.append(np.mean(rec.distance[rec.simulation_count//10:], axis=0))
+                plt_data.append(np.mean(rec.distance[args[i]["simulation_count"]//10:], axis=0))
             elif PLOT_OBJS == "oldness":
-                plt_data.append(np.mean(rec.oldness[rec.simulation_count//10:], axis=0))
+                plt_data.append(np.mean(rec.oldness[args[i]["simulation_count"]//10:], axis=0))
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
 

@@ -1,6 +1,13 @@
 import pickle
 import os
 import numpy as np
+class DictToProps:
+    def __init__(self, dictionary):
+        self.__dict__.update(dictionary)
+    def __getitem__(self, key):
+        return self.__dict__[key]
+    def keys(self):
+        return self.__dict__.keys()
 
 def save_obj(obj, name, keys = None, style = "separete", ):
     if style == "pkl":
@@ -22,19 +29,20 @@ def save_obj(obj, name, keys = None, style = "separete", ):
 
 
 def load_obj(name, keys = None):
-    if os.isdir(name):
+    if os.path.isdir(name):
         if keys is None:
             obj = {}
             for file in os.listdir(name):
+                file = file.split(".")[0]
                 with open(name + f"/{file}.pkl", 'rb') as f:
                     obj[file] = pickle.load(f)
-            return obj
+            return DictToProps(obj)
         else:
             obj = {}
             for key in keys:
                 with open(name + f"/{key}.pkl", 'rb') as f:
                     obj[key] = pickle.load(f)
-            return obj
+            return DictToProps(obj)
     if os.path.exists(name + '.pkl'):
         with open(name + '.pkl', 'rb') as f:
             return pickle.load(f)
