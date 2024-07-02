@@ -15,7 +15,7 @@ PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
 SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
-SAVE_KEYS = ["distance", "oldness", "expected_distance"]
+SAVE_KEYS = ["distance", "oldness", "expected_distance", "expected_oldness"]
 
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
@@ -83,20 +83,15 @@ unique_args = {
     # "alpha":1/7,
     "alpha":0.01,
     "data_size":100,
-    "variants_count":128,
     "nonzero_alpha":"evely"
 },{
     # "alpha":1/7,
     "alpha":0.01,
     "data_size":100,
-    "variants_count":128,
     "nonzero_alpha":"center"
 } ],
     "network_args": [{
-    "bidirectional_flow_rate": 0.01,
-}, {
-    "outward_flow_rate": 0.01,
-}
+}, 
 ],
 }
 # unique_args = {
@@ -138,7 +133,7 @@ for i in range(setting_count):
     dir_path = DATA_DIR + '/raw/' +setting_name
     if LOAD_RESULT and (os.path.exists(file_path) or os.path.exists(dir_path)):
         print('load', setting_name)
-        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name)
+        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, [PLOT_OBJS])
         print(rec.keys())
     else:
         print('simulate', setting_name)
@@ -172,28 +167,30 @@ for i in range(setting_count):
         elif args[i]["simulate_type"] == "monte_carlo":
             if PLOT_OBJS == "distance":
                 plt_data.append(np.mean(rec.distance[args[i]["simulation_count"]//10:], axis=0))
+            elif PLOT_OBJS == "expected_distance":
+                plt_data.append(rec.expected_distance)
             elif PLOT_OBJS == "oldness":
                 plt_data.append(np.mean(rec.oldness[args[i]["simulation_count"]//10:], axis=0))
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
 
-print(plt_data[0].shape)
+
 def is_concentric_distribution(expected_distance):
     for base in range(len(expected_distance)//2-1):
         for reference in range(len(expected_distance)):
             if expected_distance[base][reference] < expected_distance[base][len(expected_distance)//2] and reference > len(expected_distance)//2:
                 return True
     return False
-
+print(plt_data)
 # print(recs[0].distance)
 if PLOT_STYLE == "grid":
     setting_counts = [len(unique_args[key]) for key in unique_args.keys() if len(unique_args[key])>1]
     fig, ax = plt.subplots(*setting_counts, figsize=(5, 5) if setting_count > 1 else (5, 5))
     
     if setting_count == 1:
-        ax = [ax]
+        ax = np.array([ax])
     for i, j in np.ndindex(ax.shape):
-        if PLOT_OBJS == "distance":
+        if PLOT_OBJS == "distance" or PLOT_OBJS == "expected_distance":
             ax[i, j].invert_yaxis()
             ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
             ax[i, j].set_aspect('equal')
@@ -201,15 +198,27 @@ if PLOT_STYLE == "grid":
             ax[i, j].get_yaxis().set_visible(False)
         elif PLOT_OBJS == "oldness":
             ax[i, j].plot(plt_data[i*ax.shape[1]+j])
+            ax[i, j].set_ylim(bottom=0)
             ax[i, j].get_xaxis().set_visible(False)
             ax[i, j].get_yaxis().set_visible(False)
+        else:
+            raise ValueError("invalid PLOT_OBJS")
     plt.show()
 if PLOT_STYLE == "line":
     fig, ax = plt.subplots(setting_count)
     if setting_count == 1:
         ax = [ax]
     for i in range(setting_count):
-        ax[i].plot(plt_data[i])
+        if PLOT_OBJS == "distance" or PLOT_OBJS == "expected_distance":
+            ax[i].invert_yaxis()
+            ax[i].pcolor(plt_data[i])
+            ax[i].set_aspect('equal')
+        elif PLOT_OBJS == "oldness":
+            ax[i].plot(plt_data[i])
+            ax[i].set_ylim(bottom=0)
+
+        else:
+            raise ValueError("invalid PLOT_OBJS")
         ax[i].get_xaxis().set_visible(False)
         ax[i].get_yaxis().set_visible(False)
     plt.show()

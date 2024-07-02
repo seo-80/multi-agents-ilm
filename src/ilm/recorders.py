@@ -52,9 +52,11 @@ class DataRecorder(Recorder):
         self.__distance = None
         self.__oldness = None
         self.__expected_distance = None
+        self.__expected_oldness = None
     def compute_oldness(self):
         if self._Recorder__agent_type == "BayesianInfiniteVariantsAgent":
             self.__oldness = numpy.array([[numpy.mean([t-d[0] for d in agent]) for agent in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)])
+            self.__expected_oldness = numpy.mean(self.__oldness[self.simulation_count//10:], axis=0)
         elif self._Recorder__agent_type == "BayesianFiniteVariantsAgent":
             print('cant compute oldness for BayesianFiniteVariantsAgent')
 
@@ -96,8 +98,8 @@ class DataRecorder(Recorder):
     def simulation_count(self):
         return self._Recorder__simulation_count
     def compute_distance(self):
-        self.compute_oldness()
         if self._Recorder__agent_type == "BayesianInfiniteVariantsAgent":
+            self.compute_oldness()
             collections_rec = [[collections.Counter([tuple(d) for d in agent]) for agent in self._Recorder__return_record[t]] for t in range(self._Recorder__simulation_count)]
             temp_distance = numpy.array([[[sum(abs(agenti[k]-agentj[k]) for k in agenti.keys()) for agenti in collections_rec[t]] for agentj in collections_rec[t]] for t in range(self._Recorder__simulation_count)])
             agents_count = temp_distance.shape[1]
