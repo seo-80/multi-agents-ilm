@@ -40,8 +40,12 @@ def load_obj(name, keys = None):
         else:
             obj = {}
             for key in keys:
-                with open(name + f"/{key}.pkl", 'rb') as f:
-                    obj[key] = pickle.load(f)
+                if os.path.exists(name + f"/{key}.pkl"):
+                    with open(name + f"/{key}.pkl", 'rb') as f:
+                        obj[key] = pickle.load(f)
+                elif os.path.exists(name + f"{key[9:]}.pkl"):
+                    with open(name + f"{key[9:]}.pkl", 'rb') as f:
+                        obj[key[9:]] = pickle.load(f)
             return DictToProps(obj)
     if os.path.exists(name + '.pkl'):
         with open(name + '.pkl', 'rb') as f:

@@ -61,7 +61,7 @@ class DataRecorder(Recorder):
             print('cant compute oldness for BayesianFiniteVariantsAgent')
 
     def keys(self):
-        return ["oldness","distance","expected_distance","record"]
+        return ["oldness","distance","expected_distance","expected_oldness","record"]
     
     def __getitem__(self,key):
         if key == "oldness":
@@ -70,6 +70,8 @@ class DataRecorder(Recorder):
             return self.distance
         elif key == "expected_distance":
             return self.expected_distance
+        elif key == "expected_oldness":
+            return self.expected_oldness
         else:
             raise ValueError(f"Unknown key: {key}")
 
@@ -86,6 +88,12 @@ class DataRecorder(Recorder):
         if self.__expected_distance is None:
             self.compute_distance()
         return self.__expected_distance
+    
+    @property
+    def expected_oldness(self):
+        if self.__expected_oldness is None:
+            self.compute_oldness()
+        return self.__expected_oldness
         
 
     @property

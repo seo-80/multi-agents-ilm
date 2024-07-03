@@ -75,7 +75,7 @@ unique_args = {
 }
 #データ数100
 unique_args = {
-    "simulation_count": [ 100],
+    "simulation_count": [ 50],
     "agents_count": [15],
     "simulate_type":["monte_carlo"],
     "agent": [ "BayesianInfiniteVariantsAgent"],
@@ -91,9 +91,13 @@ unique_args = {
     "nonzero_alpha":"center"
 } ],
     "network_args": [{
+    "bidirectional_flow_rate": 0.01,
+}, {
+    "outward_flow_rate": 0.01,
 }, 
 ],
 }
+
 # unique_args = {
 #     "simulation_count": [ 100],
 #     "agent": [ "BayesianInfiniteVariantsAgent"],
@@ -141,6 +145,7 @@ for i in range(setting_count):
             args[i]
         )
         rec.compute_distance()
+        rec.compute_oldness()
     if SAVE_RESULT:
         # if not SAVE_STATES:
         #     rec.__return_record = None
