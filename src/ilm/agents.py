@@ -71,7 +71,7 @@ class BayesianInfiniteVariantsAgent:
         if data is None:
             self.__data=data
         elif data.ndim == 1:#data[generation, agent, number]
-            self.__data=numpy.array([[self.__generation, self.__agent_number, d] for d in data]).astype(numpy.uint8,casting='unsafe')
+            self.__data=numpy.array([[self.__generation, self.__agent_number, d] for d in data]).astype(numpy.uint32,casting='unsafe')
         else:
             self.__data=data
         
@@ -88,12 +88,12 @@ class BayesianInfiniteVariantsAgent:
             n=self.__data_size
         new_word_count=numpy.random.binomial(n,self.__alpha/(self.__data_size+self.__alpha))
         if self.__data is None:
-            return numpy.array([[self.__generation,self.__agent_number,i] for i in range(n)],dtype=numpy.uint8)#,casting="unsafe")
+            return numpy.array([[self.__generation,self.__agent_number,i] for i in range(n)],dtype=numpy.uint32)#,casting="unsafe")
         else:
             if new_word_count==0:
                 return self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :]
             else:
-                return numpy.concatenate([self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :], numpy.array([[self.__generation,self.__agent_number,i] for i in range(new_word_count)])],dtype=numpy.uint8,casting="unsafe")
+                return numpy.concatenate([self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :], numpy.array([[self.__generation,self.__agent_number,i] for i in range(new_word_count)])],dtype=numpy.uint32,casting="unsafe")
 
     @property
     def hypothesis(self) -> numpy.array:

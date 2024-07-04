@@ -19,6 +19,9 @@ SAVE_KEYS = ["distance", "oldness", "expected_distance", "expected_oldness"]
 
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
+PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
+PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
+PLOT_DISTANCE_FROM_ONE = False
 
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
@@ -74,26 +77,28 @@ unique_args = {
     "network_args": network_args,
 }
 #データ数100
+alpha=0.1
+fr = 0.01
 unique_args = {
-    "simulation_count": [ 50],
+    "simulation_count": [ 500000],
     "agents_count": [15],
     "simulate_type":["monte_carlo"],
     "agent": [ "BayesianInfiniteVariantsAgent"],
     "agents_arguments": [{
     # "alpha":1/7,
-    "alpha":0.01,
+    "alpha":alpha,
     "data_size":100,
     "nonzero_alpha":"evely"
 },{
     # "alpha":1/7,
-    "alpha":0.01,
+    "alpha":alpha,
     "data_size":100,
     "nonzero_alpha":"center"
 } ],
     "network_args": [{
-    "bidirectional_flow_rate": 0.01,
+    "bidirectional_flow_rate": fr,
 }, {
-    "outward_flow_rate": 0.01,
+    "outward_flow_rate": fr,
 }, 
 ],
 }
@@ -176,6 +181,8 @@ for i in range(setting_count):
                 plt_data.append(rec.expected_distance)
             elif PLOT_OBJS == "oldness":
                 plt_data.append(np.mean(rec.oldness[args[i]["simulation_count"]//10:], axis=0))
+            elif PLOT_OBJS == "expected_oldness":
+                plt_data.append(rec.expected_oldness)
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
 
@@ -196,12 +203,19 @@ if PLOT_STYLE == "grid":
         ax = np.array([ax])
     for i, j in np.ndindex(ax.shape):
         if PLOT_OBJS == "distance" or PLOT_OBJS == "expected_distance":
-            ax[i, j].invert_yaxis()
-            ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
-            ax[i, j].set_aspect('equal')
-            ax[i, j].get_xaxis().set_visible(False)
-            ax[i, j].get_yaxis().set_visible(False)
-        elif PLOT_OBJS == "oldness":
+            if PLOT_DISTANCE_FROM_ONE:
+                ax[i, j].bar(range(len(plt_data[i*ax.shape[1]+j])), plt_data[i*ax.shape[1]+j][:, 2])
+                ax[i, j].bar(len(plt_data[i*ax.shape[1]+j])//2, plt_data[i*ax.shape[1]+j][len(plt_data[i*ax.shape[1]+j])//2, 2], color="red")
+                ax[i, j].set_ylim(bottom=0)
+                ax[i, j].get_xaxis().set_visible(False)
+                ax[i, j].get_yaxis().set_visible(False)
+            else:
+                ax[i, j].invert_yaxis()
+                ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
+                ax[i, j].set_aspect('equal')
+                ax[i, j].get_xaxis().set_visible(False)
+                ax[i, j].get_yaxis().set_visible(False)
+        elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
             ax[i, j].plot(plt_data[i*ax.shape[1]+j])
             ax[i, j].set_ylim(bottom=0)
             ax[i, j].get_xaxis().set_visible(False)
@@ -218,7 +232,7 @@ if PLOT_STYLE == "line":
             ax[i].invert_yaxis()
             ax[i].pcolor(plt_data[i])
             ax[i].set_aspect('equal')
-        elif PLOT_OBJS == "oldness":
+        elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
             ax[i].plot(plt_data[i])
             ax[i].set_ylim(bottom=0)
 
