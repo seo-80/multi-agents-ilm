@@ -15,12 +15,12 @@ PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
 SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
-SAVE_KEYS = ["distance", "oldness", "expected_distance", "expected_oldness"]
+SAVE_KEYS = ["record", "expected_distance", "expected_oldness"]
 
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
-PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
+PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
 PLOT_DISTANCE_FROM_ONE = False
 
 
@@ -80,7 +80,7 @@ unique_args = {
 alpha=0.1
 fr = 0.01
 unique_args = {
-    "simulation_count": [ 500000],
+    "simulation_count": [ 1000000],
     "agents_count": [15],
     "simulate_type":["monte_carlo"],
     "agent": [ "BayesianInfiniteVariantsAgent"],
