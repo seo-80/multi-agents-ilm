@@ -28,7 +28,7 @@ class Recorder:
         self.__agent_type = None
         
     def __call__(self,**kwargs):
-        if self.__agent_type is None:
+        if self.__agent_type is None and "agents" in kwargs:
             self.__agent_type = kwargs["agents"][0].__class__.__name__
         tmp_record=self.fileter_function(**kwargs)
         if self.__return_record is None:
@@ -121,15 +121,29 @@ class DataRecorder(Recorder):
 class DataRecorderStateVec(Recorder):
     def __init__(self,simulation_count,data_shape=None, distances_matrix=None):
         super().__init__(simulation_count=simulation_count,data_shape=data_shape)
-        self.distances_matrix = distances_matrixs
+        self.distances_matrix = distances_matrix
         self.__distance = None
         self.__expected_distance = None
+        self.__oldness = None
+        self.__expected_oldness = None
     
     def fileter_function(self,**kwargs):
         return numpy.array(kwargs["states"])
     
 
-
+    def __getitem__(self,key):
+        if key == "oldness":
+            return self.oldness
+        elif key == "distance":
+            return self.distance
+        elif key == "expected_distance":
+            return self.expected_distance
+        elif key == "expected_oldness":
+            return self.expected_oldness
+        elif key == "record":
+            return self.record
+        else:
+            raise ValueError(f"Unknown key: {key}")
     def compute_distance(self):
         agents_count = len(self._Recorder__return_record.shape) - 1
         if self.__distance is None:
@@ -140,6 +154,35 @@ class DataRecorderStateVec(Recorder):
             self.__distance = numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
         if self.__expected_distance is None:
             self.__expected_distance = numpy.tensordot(self._Recorder__return_record, self.distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
+    def keys(self):
+        return ["record","oldness","distance","expected_distance","expected_oldness","record"]
+    def compute_oldness(self):#todo
+        agents_count = len(self._Recorder__return_record.shape) - 1
+        if self.__oldness is None:
+            axis_list = [tuple([j  for j in range(agents_count) if i != j])for i in range(agents_count)]
+            variants_count = self._Recorder__return_record.shape[1]
+            self.__oldness = numpy.array([[t*numpy.sum(numpy.sum(self._Recorder__return_record[t], axis=axis_list[ai])*numpy.arange(variants_count)) for ai in range(agents_count)] for t in range(self._Recorder__simulation_count)])
+            self.__expected_oldness = numpy.sum(self.__oldness[self._Recorder__simulation_count//10:], axis=0)
+    @property
+    def simulation_count(self):
+        return self._Recorder__simulation_count
+    @property
+    def oldness(self):
+        if self.__oldness is None:
+            self.compute_oldness()
+        return self.__oldness
+    
+    @property
+    def expected_distance(self):
+        if self.__expected_distance is None:
+            self.compute_distance()
+        return self.__expected_distance
+    
+    @property
+    def expected_oldness(self):
+        if self.__expected_oldness is None:
+            self.compute_oldness()
+        return self.__expected_oldness
     @property
     def distance(self):
         if self.__distance is None:
