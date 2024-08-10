@@ -19,8 +19,8 @@ SAVE_KEYS = ["record", "expected_distance", "expected_oldness"]
 
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
-PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
+PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
 PLOT_DISTANCE_FROM_ONE = False
 
 
@@ -102,6 +102,31 @@ unique_args = {
 }, 
 ],
 }
+alpha=0.00001
+fr = 0.1
+unique_args = {
+    "simulation_count": [ 1000000],
+    "agents_count": [5],
+    "simulate_type":["markov_chain"],
+    "agent": [ "BayesianInfiniteVariantsAgent"],
+    "agents_arguments": [{
+    # "alpha":1/7,
+    "alpha":alpha,
+    "data_size":1,
+    "nonzero_alpha":"evely"
+},{
+    # "alpha":1/7,
+    "alpha":alpha,
+    "data_size":1,
+    "nonzero_alpha":"center"
+} ],
+    "network_args": [{
+    "bidirectional_flow_rate": fr,
+}, {
+    "outward_flow_rate": fr,
+},
+],
+}
 
 # unique_args = {
 #     "simulation_count": [ 100],
@@ -173,7 +198,15 @@ for i in range(setting_count):
             raise ValueError("simulate_type must be 'markov_chain' or 'monte_carlo'")
     elif args[i]["agent"] == "BayesianInfiniteVariantsAgent":
         if args[i]["simulate_type"] == "markov_chain":
-            plt_data.append(np.sum(rec.distance, axis=0))
+            # plt_data.append(np.sum(rec.distance, axis=0))
+            if PLOT_OBJS == "distance":
+                plt_data.append(np.mean(rec.distance[args[i]["simulation_count"]//10:], axis=0))
+            elif PLOT_OBJS == "expected_distance":
+                plt_data.append(np.sum(rec.expected_distance, axis=0))
+            elif PLOT_OBJS == "oldness":
+                plt_data.append(np.mean(rec.oldness[args[i]["simulation_count"]//10:], axis=0))
+            elif PLOT_OBJS == "expected_oldness":
+                plt_data.append(rec.expected_oldness)
         elif args[i]["simulate_type"] == "monte_carlo":
             if PLOT_OBJS == "distance":
                 plt_data.append(np.mean(rec.distance[args[i]["simulation_count"]//10:], axis=0))
@@ -195,6 +228,31 @@ def is_concentric_distribution(expected_distance):
     return False
 print(plt_data)
 # print(recs[0].distance)
+
+def plot_distance(ax, distance):
+    if PLOT_DISTANCE_FROM_ONE:
+        ax.bar(range(len(distance)), distance[:, 2])
+        ax.bar(len(distance)//2, distance[len(distance)//2, 2], color="red")
+        ax.set_ylim(bottom=0)
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+    else:
+        ax.invert_yaxis()
+        ax.pcolor(distance)
+        ax.set_aspect('equal')
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
+
+def plot_oldness(ax, oldness, max_oldness=None):
+    if max_oldness is None:
+        max_oldness = np.max(oldness)
+    ax.plot(oldness)
+    ax.set_ylim(bottom=0, top=max_oldness)
+    ax.set_ylim(bottom=0)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+
+
 if PLOT_STYLE == "grid":
     setting_counts = [len(unique_args[key]) for key in unique_args.keys() if len(unique_args[key])>1]
     fig, ax = plt.subplots(*setting_counts, figsize=(5, 5) if setting_count > 1 else (5, 5))
@@ -203,23 +261,26 @@ if PLOT_STYLE == "grid":
         ax = np.array([ax])
     for i, j in np.ndindex(ax.shape):
         if PLOT_OBJS == "distance" or PLOT_OBJS == "expected_distance":
-            if PLOT_DISTANCE_FROM_ONE:
-                ax[i, j].bar(range(len(plt_data[i*ax.shape[1]+j])), plt_data[i*ax.shape[1]+j][:, 2])
-                ax[i, j].bar(len(plt_data[i*ax.shape[1]+j])//2, plt_data[i*ax.shape[1]+j][len(plt_data[i*ax.shape[1]+j])//2, 2], color="red")
-                ax[i, j].set_ylim(bottom=0)
-                ax[i, j].get_xaxis().set_visible(False)
-                ax[i, j].get_yaxis().set_visible(False)
-            else:
-                ax[i, j].invert_yaxis()
-                ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
-                ax[i, j].set_aspect('equal')
-                ax[i, j].get_xaxis().set_visible(False)
-                ax[i, j].get_yaxis().set_visible(False)
+            plot_distance(ax[i, j], plt_data[i*ax.shape[1]+j])
+            # if PLOT_DISTANCE_FROM_ONE:
+            #     ax[i, j].bar(range(len(plt_data[i*ax.shape[1]+j])), plt_data[i*ax.shape[1]+j][:, 2])
+            #     ax[i, j].bar(len(plt_data[i*ax.shape[1]+j])//2, plt_data[i*ax.shape[1]+j][len(plt_data[i*ax.shape[1]+j])//2, 2], color="red")
+            #     ax[i, j].set_ylim(bottom=0)
+            #     ax[i, j].get_xaxis().set_visible(False)
+            #     ax[i, j].get_yaxis().set_visible(False)
+            # else:
+            #     ax[i, j].invert_yaxis()
+            #     ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
+            #     ax[i, j].set_aspect('equal')
+            #     ax[i, j].get_xaxis().set_visible(False)
+            #     ax[i, j].get_yaxis().set_visible(False)
         elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
-            ax[i, j].plot(plt_data[i*ax.shape[1]+j])
-            ax[i, j].set_ylim(bottom=0)
-            ax[i, j].get_xaxis().set_visible(False)
-            ax[i, j].get_yaxis().set_visible(False)
+            max_oldness = np.max(plt_data)
+            plot_oldness(ax[i, j], plt_data[i*ax.shape[1]+j], max_oldness)
+            # ax[i, j].plot(plt_data[i*ax.shape[1]+j])
+            # ax[i, j].set_ylim(bottom=0)
+            # ax[i, j].get_xaxis().set_visible(False)
+            # ax[i, j].get_yaxis().set_visible(False)
         else:
             raise ValueError("invalid PLOT_OBJS")
     plt.show()
@@ -249,3 +310,17 @@ if PLOT_STYLE == "line":
 #     ax[i].pcolor(recs[0].distance[i*1000])
 #     ax[i].set_aspect('equal')
 # plt.show()   
+import requests
+
+
+def send_line_notify(notification_message):
+    """
+    LINEに通知する
+    """
+    line_notify_token = '16sgkQCMajud9TErAKE7oZ4yLjMemkIvLlTuyWiGlyB'
+    line_notify_api = 'https://notify-api.line.me/api/notify'
+    headers = {'Authorization': f'Bearer {line_notify_token}'}
+    data = {'message': f'message: {notification_message}'}
+    requests.post(line_notify_api, headers = headers, data = data)
+if os.environ.get('LINE_NOTIFY'):
+    send_line_notify("Simulation finished!")
