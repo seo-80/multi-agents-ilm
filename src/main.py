@@ -11,16 +11,27 @@ import data_manager
 # 引数の定義
 SAVE_RESULT = True
 LOAD_RESULT = True
+LOAD_RESULT = False
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
 SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
-SAVE_KEYS = ["record", "expected_distance", "expected_oldness"]
+SAVE_KEYS = ["record", "expected_distance", "expected_oldness", 'variance_oldness']
+
+
+PLOT_SCALE = True  # Set to True to scale the plot. 
+PLOT_SCALE_TYPE = "linear"  # Options: "linear" or "log"
+
+
 
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
+# PLOT_STYLE = "comulative_average"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
-PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
+PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
+PLOT_OBJS = ["expected_oldness", "variance_oldness"]  # Options: "distance" or "oldness"
+# PLOT_OBJS = "distance"  # Options: "distance" or "oldness"
+# PLOT_OBJS = 'comulative_average'
 PLOT_DISTANCE_FROM_ONE = False
 
 
@@ -102,22 +113,26 @@ unique_args = {
 }, 
 ],
 }
-alpha=0.00001
-fr = 0.1
+alpha_per_data=0.001
+fr = 0.01
+data_size = 100
+alpha = data_size*alpha_per_data
 unique_args = {
-    "simulation_count": [ 1000000],
-    "agents_count": [5],
-    "simulate_type":["markov_chain"],
+    # "simulation_count": [ 1000000],
+    "simulation_count": [ 100],
+    "agents_count": [15],
+    # "simulate_type":["markov_chain"],
+    "simulate_type":["monte_carlo"],
     "agent": [ "BayesianInfiniteVariantsAgent"],
     "agents_arguments": [{
-    # "alpha":1/7,
+    # "alpha":1/7,  
     "alpha":alpha,
-    "data_size":1,
+    "data_size":data_size,
     "nonzero_alpha":"evely"
 },{
     # "alpha":1/7,
     "alpha":alpha,
-    "data_size":1,
+    "data_size":data_size,
     "nonzero_alpha":"center"
 } ],
     "network_args": [{
@@ -168,7 +183,6 @@ for i in range(setting_count):
     if LOAD_RESULT and (os.path.exists(file_path) or os.path.exists(dir_path)):
         print('load', setting_name)
         rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, [PLOT_OBJS])
-        print(rec.keys())
     else:
         print('simulate', setting_name)
         rec = ilm.simulate(
@@ -176,14 +190,9 @@ for i in range(setting_count):
         )
         rec.compute_distance()
         rec.compute_oldness()
-    if SAVE_RESULT:
-        # if not SAVE_STATES:
-        #     rec.__return_record = None
-        # if not SAVE_DISTANCES:
-        #     rec.__distance = None
-        # if not SAVE_EX_DISTANCE:
-        #     rec.__expected_distance = None
-        data_manager.save_obj(rec, DATA_DIR + '/raw/' + setting_name, SAVE_KEYS, style="separete")
+        rec.compute_variance('oldness')
+        if SAVE_RESULT:
+            data_manager.save_obj(rec, DATA_DIR + '/raw/' + setting_name, SAVE_KEYS, style="separete")
 
 
 
@@ -197,25 +206,11 @@ for i in range(setting_count):
         else:
             raise ValueError("simulate_type must be 'markov_chain' or 'monte_carlo'")
     elif args[i]["agent"] == "BayesianInfiniteVariantsAgent":
-        if args[i]["simulate_type"] == "markov_chain":
-            # plt_data.append(np.sum(rec.distance, axis=0))
-            if PLOT_OBJS == "distance":
-                plt_data.append(np.mean(rec.distance[args[i]["simulation_count"]//10:], axis=0))
-            elif PLOT_OBJS == "expected_distance":
-                plt_data.append(np.sum(rec.expected_distance, axis=0))
-            elif PLOT_OBJS == "oldness":
-                plt_data.append(np.mean(rec.oldness[args[i]["simulation_count"]//10:], axis=0))
-            elif PLOT_OBJS == "expected_oldness":
-                plt_data.append(rec.expected_oldness)
-        elif args[i]["simulate_type"] == "monte_carlo":
-            if PLOT_OBJS == "distance":
-                plt_data.append(np.mean(rec.distance[args[i]["simulation_count"]//10:], axis=0))
-            elif PLOT_OBJS == "expected_distance":
-                plt_data.append(rec.expected_distance)
-            elif PLOT_OBJS == "oldness":
-                plt_data.append(np.mean(rec.oldness[args[i]["simulation_count"]//10:], axis=0))
-            elif PLOT_OBJS == "expected_oldness":
-                plt_data.append(rec.expected_oldness)
+        if type(PLOT_OBJS) == str:
+            plt_data.append(getattr(rec, PLOT_OBJS))
+        elif type(PLOT_OBJS) == list:
+            plt_data.append([getattr(rec, obj) for obj in PLOT_OBJS])
+
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
 
@@ -226,7 +221,6 @@ def is_concentric_distribution(expected_distance):
             if expected_distance[base][reference] < expected_distance[base][len(expected_distance)//2] and reference > len(expected_distance)//2:
                 return True
     return False
-print(plt_data)
 # print(recs[0].distance)
 
 def plot_distance(ax, distance):
@@ -237,20 +231,47 @@ def plot_distance(ax, distance):
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
     else:
+        im = ax.pcolor(distance)
         ax.invert_yaxis()
-        ax.pcolor(distance)
         ax.set_aspect('equal')
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
+        fig.colorbar(im, ax=ax)
 
-def plot_oldness(ax, oldness, max_oldness=None):
+def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None):
+    variance_oldness = None
+    if type(oldness) == list:
+        oldness, variance_oldness = oldness
     if max_oldness is None:
-        max_oldness = np.max(oldness)
+        max_oldness = np.max(oldness)*1.1
+    if min_oldness is None:
+        if PLOT_SCALE_TYPE == "log":
+            min_oldness = 0.1
+        else:
+            min_oldness = 0
     ax.plot(oldness)
-    ax.set_ylim(bottom=0, top=max_oldness)
-    ax.set_ylim(bottom=0)
+    if variance_oldness is not None:
+        ax.fill_between(range(len(oldness)), oldness - np.sqrt(variance_oldness), oldness + np.sqrt(variance_oldness), alpha=0.3)
+    ax.scatter(range(len(oldness)), oldness, s=5)
+    ax.set_ylim(top=max_oldness)
+    ax.set_yscale(PLOT_SCALE_TYPE)
+    ax.set_ylim(bottom=min_oldness)
     ax.get_xaxis().set_visible(False)
-    ax.get_yaxis().set_visible(False)
+    ax.get_yaxis().set_visible(PLOT_SCALE)
+    print(oldness)
+    print(variance_oldness)
+
+        
+
+
+
+
+
+def comulative_average(data):
+    cumsum = np.cumsum(data, axis=0)
+    counts = np.arange(1, data.shape[0] +1)
+    return cumsum / counts
+
 
 
 if PLOT_STYLE == "grid":
@@ -262,25 +283,13 @@ if PLOT_STYLE == "grid":
     for i, j in np.ndindex(ax.shape):
         if PLOT_OBJS == "distance" or PLOT_OBJS == "expected_distance":
             plot_distance(ax[i, j], plt_data[i*ax.shape[1]+j])
-            # if PLOT_DISTANCE_FROM_ONE:
-            #     ax[i, j].bar(range(len(plt_data[i*ax.shape[1]+j])), plt_data[i*ax.shape[1]+j][:, 2])
-            #     ax[i, j].bar(len(plt_data[i*ax.shape[1]+j])//2, plt_data[i*ax.shape[1]+j][len(plt_data[i*ax.shape[1]+j])//2, 2], color="red")
-            #     ax[i, j].set_ylim(bottom=0)
-            #     ax[i, j].get_xaxis().set_visible(False)
-            #     ax[i, j].get_yaxis().set_visible(False)
-            # else:
-            #     ax[i, j].invert_yaxis()
-            #     ax[i, j].pcolor(plt_data[i*ax.shape[1]+j])
-            #     ax[i, j].set_aspect('equal')
-            #     ax[i, j].get_xaxis().set_visible(False)
-            #     ax[i, j].get_yaxis().set_visible(False)
-        elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
+        elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness" or "variance_oldness" in PLOT_OBJS:
             max_oldness = np.max(plt_data)
-            plot_oldness(ax[i, j], plt_data[i*ax.shape[1]+j], max_oldness)
-            # ax[i, j].plot(plt_data[i*ax.shape[1]+j])
-            # ax[i, j].set_ylim(bottom=0)
-            # ax[i, j].get_xaxis().set_visible(False)
-            # ax[i, j].get_yaxis().set_visible(False)
+            min_oldness = np.min(plt_data)
+            max_oldness = None
+            min_oldness = None
+            plot_oldness(ax[i, j], plt_data[i*ax.shape[1]+j], min_oldness,max_oldness)
+
         else:
             raise ValueError("invalid PLOT_OBJS")
     plt.show()
@@ -303,6 +312,31 @@ if PLOT_STYLE == "line":
         ax[i].get_yaxis().set_visible(False)
     plt.show()
 
+if PLOT_STYLE == "comulative_average":
+    fig, ax = plt.subplots(setting_count)
+    if setting_count == 1:
+        ax = [ax]
+    for i in range(setting_count):
+        # Compute the relative change in quantity between consecutive time steps
+        comulative_ave = np.zeros(plt_data[i].shape)
+        relative_change = np.zeros(plt_data[i].shape[1:])
+        for ai in range(plt_data[i].shape[1]):
+            for aj in range(ai, plt_data[i].shape[2]):
+                comulative_ave[ai,aj] = comulative_average(plt_data[i][:, ai, aj])
+                relative_change[ai, aj] = (comulative_ave[ai, aj, -1] - comulative_ave[ai, aj, -2]) / comulative_ave[ai, aj , -1]
+        # Find the indices of the largest relative changes at the final time step
+        num_to_plot = 5  # Number of lines to plot
+        largest_indices = np.unravel_index(np.argsort(relative_change, axis=None)[-num_to_plot:], relative_change.shape)
+        
+        # Plot the lines with the largest relative changes at the final time step
+        for ai, aj in zip(*largest_indices):
+            ax[i].plot(comulative_ave[:, ai, aj], label=f"({ai}, {aj})")
+        
+        ax[i].legend()
+        ax[i].get_xaxis().set_visible(False)
+        ax[i].get_yaxis().set_visible(False)
+    plt.savefig(DATA_DIR + '/fig/' + setting_name + "comulative_average.png")
+    plt.show()
 # fig_num = 10
 # fig, ax = plt.subplots(fig_num)
 # for i in range(fig_num):

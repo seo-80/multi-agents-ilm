@@ -46,9 +46,12 @@ def load_obj(name, keys = None):
                 elif os.path.exists(name + f"{key[9:]}.pkl"):
                     with open(name + f"{key[9:]}.pkl", 'rb') as f:
                         obj[key[9:]] = pickle.load(f)
+                else:
+                    print(f'{key} is not in {name}')
             return DictToProps(obj)
     if os.path.exists(name + '.pkl'):
         with open(name + '.pkl', 'rb') as f:
             return pickle.load(f)
+    
 
 
