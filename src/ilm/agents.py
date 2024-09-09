@@ -61,6 +61,7 @@ class BayesianInfiniteVariantsAgent:
     def __init__(self,agentgent_number=None,generation=None,data=None, alpha:float=0.0, data_size=None,):
         if agentgent_number==None:
             self.__agent_number=0
+            print("agent number is not set")
         else:
             self.__agent_number=agentgent_number
         if generation is None:

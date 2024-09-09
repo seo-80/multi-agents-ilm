@@ -14,21 +14,21 @@ def save_obj(obj, name, keys = None, style = "separete", ):
         with open(name + '.pkl', 'wb') as f:
             pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
     elif style == "separete":
-        os.makedirs(name, exist_ok=True)
+        sim_id = 0
         if keys is None:
-            for key in obj.keys():
-                with open(name + f"/{key}.pkl", 'wb') as f:
-                    pickle.dump(obj[key], f, pickle.HIGHEST_PROTOCOL)
-        else:
-            for key in keys:
-                if key in obj.keys():
-                    with open(name + f"/{key}.pkl", 'wb') as f:
-                        pickle.dump(obj[key], f, pickle.HIGHEST_PROTOCOL)
-                else:
-                    print(f"{key} is not in obj.keys()")
+            print('Warning: keys is None. All keys will be saved.')
+            keys = obj.keys()
+        while any([os.path.exists(f"{name}/{key}_{sim_id}.pkl") for key in obj.keys()]):
+            sim_id += 1
+        for key in obj.keys():
+
+            with open(f"{name}/{key}_{sim_id}.pkl", 'wb') as f:
+                pickle.dump(obj[key], f, pickle.HIGHEST_PROTOCOL)
 
 
 def load_obj(name, keys = None):
+    if type(keys) == str:
+        keys = [keys]
     if os.path.isdir(name):
         if keys is None:
             obj = {}
@@ -40,8 +40,8 @@ def load_obj(name, keys = None):
         else:
             obj = {}
             for key in keys:
-                if os.path.exists(name + f"/{key}.pkl"):
-                    with open(name + f"/{key}.pkl", 'rb') as f:
+                if os.path.exists(f"{name}/{key}.pkl"):
+                    with open(f"{name}/{key}.pkl", 'rb') as f:
                         obj[key] = pickle.load(f)
                 elif os.path.exists(name + f"{key[9:]}.pkl"):
                     with open(name + f"{key[9:]}.pkl", 'rb') as f:

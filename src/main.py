@@ -10,7 +10,6 @@ import data_manager
 
 # 引数の定義
 SAVE_RESULT = True
-LOAD_RESULT = True
 LOAD_RESULT = False
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
@@ -27,9 +26,9 @@ PLOT_SCALE_TYPE = "linear"  # Options: "linear" or "log"
 PLOT_STYLE = "grid"  # Options: "grid" or "line"
 # PLOT_STYLE = "comulative_average"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
-PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
-PLOT_OBJS = ["expected_oldness", "variance_oldness"]  # Options: "distance" or "oldness"
+PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
+# PLOT_OBJS = ["expected_oldness", "variance_oldness"]  # Options: "distance" or "oldness"
 # PLOT_OBJS = "distance"  # Options: "distance" or "oldness"
 # PLOT_OBJS = 'comulative_average'
 PLOT_DISTANCE_FROM_ONE = False
@@ -118,8 +117,7 @@ fr = 0.01
 data_size = 100
 alpha = data_size*alpha_per_data
 unique_args = {
-    # "simulation_count": [ 1000000],
-    "simulation_count": [ 100],
+    "simulation_count": [ 1000000],
     "agents_count": [15],
     # "simulate_type":["markov_chain"],
     "simulate_type":["monte_carlo"],
@@ -182,7 +180,7 @@ for i in range(setting_count):
     dir_path = DATA_DIR + '/raw/' +setting_name
     if LOAD_RESULT and (os.path.exists(file_path) or os.path.exists(dir_path)):
         print('load', setting_name)
-        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, [PLOT_OBJS])
+        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS)
     else:
         print('simulate', setting_name)
         rec = ilm.simulate(
@@ -238,12 +236,15 @@ def plot_distance(ax, distance):
         ax.get_yaxis().set_visible(False)
         fig.colorbar(im, ax=ax)
 
-def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None):
+def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=None):
     variance_oldness = None
     if type(oldness) == list:
         oldness, variance_oldness = oldness
     if max_oldness is None:
-        max_oldness = np.max(oldness)*1.1
+        if variance_oldness is not None:
+            max_oldness = np.max(oldness + np.sqrt(variance_oldness))*1.1
+        else:
+            max_oldness = np.max(oldness)*1.1
     if min_oldness is None:
         if PLOT_SCALE_TYPE == "log":
             min_oldness = 0.1
@@ -255,9 +256,15 @@ def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None):
     ax.scatter(range(len(oldness)), oldness, s=5)
     ax.set_ylim(top=max_oldness)
     ax.set_yscale(PLOT_SCALE_TYPE)
+    if scale_interval is not None:
+        ax.set_yticks(np.arange(min_oldness, max_oldness, scale_interval))
+    ax.ticklabel_format(style='plain', axis='y', useOffset=False)
+    ax.tick_params(axis='y', labelsize=7)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x))))
     ax.set_ylim(bottom=min_oldness)
     ax.get_xaxis().set_visible(False)
     ax.get_yaxis().set_visible(PLOT_SCALE)
+
     print(oldness)
     print(variance_oldness)
 
@@ -277,18 +284,28 @@ def comulative_average(data):
 if PLOT_STYLE == "grid":
     setting_counts = [len(unique_args[key]) for key in unique_args.keys() if len(unique_args[key])>1]
     fig, ax = plt.subplots(*setting_counts, figsize=(5, 5) if setting_count > 1 else (5, 5))
+    fig.subplots_adjust(wspace=0.3, hspace=0.2)
     
     if setting_count == 1:
         ax = np.array([ax])
     for i, j in np.ndindex(ax.shape):
         if PLOT_OBJS == "distance" or PLOT_OBJS == "expected_distance":
-            plot_distance(ax[i, j], plt_data[i*ax.shape[1]+j])
+            plot_distance(ax[i, j], plt_data[j*ax.shape[1]+i])
         elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness" or "variance_oldness" in PLOT_OBJS:
             max_oldness = np.max(plt_data)
             min_oldness = np.min(plt_data)
             max_oldness = None
             min_oldness = None
-            plot_oldness(ax[i, j], plt_data[i*ax.shape[1]+j], min_oldness,max_oldness)
+            scale_interval = None
+            if i==0 and j==1:
+                max_oldness = 22500
+                min_oldness = 12500
+                scale_interval = 2500
+            else:
+                max_oldness = 1750
+                min_oldness = 750
+                scale_interval = 250
+            plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness, scale_interval)
 
         else:
             raise ValueError("invalid PLOT_OBJS")
