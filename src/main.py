@@ -9,7 +9,7 @@ import ilm
 import data_manager
 
 # 引数の定義
-SAVE_RESULT = True
+SAVE_RESULT = True  # Set to True to save simulation results
 LOAD_RESULT = False
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
@@ -28,6 +28,7 @@ PLOT_STYLE = "grid"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
+PLOT_OBJS = "distance"  # Options: "distance" or "oldness"
 # PLOT_OBJS = ["expected_oldness", "variance_oldness"]  # Options: "distance" or "oldness"
 # PLOT_OBJS = "distance"  # Options: "distance" or "oldness"
 # PLOT_OBJS = 'comulative_average'
@@ -180,7 +181,7 @@ for i in range(setting_count):
     dir_path = DATA_DIR + '/raw/' +setting_name
     if LOAD_RESULT and (os.path.exists(file_path) or os.path.exists(dir_path)):
         print('load', setting_name)
-        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS)
+        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=None)
     else:
         print('simulate', setting_name)
         rec = ilm.simulate(
@@ -211,6 +212,7 @@ for i in range(setting_count):
 
     else:
         raise ValueError("agent must be 'BayesianFiniteVariantsAgent' or 'BayesianInfiniteVariantsAgent'")
+    rec = None
 
 
 def is_concentric_distribution(expected_distance):
