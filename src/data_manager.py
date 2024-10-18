@@ -9,19 +9,22 @@ class DictToProps:
     def keys(self):
         return self.__dict__.keys()
 
-def save_obj(obj, name, keys = None, style = "separete", ):
+def save_obj(obj, name, keys = None, style = "separete", simularion_version = None):
     if style == "pkl":
         with open(name + '.pkl', 'wb') as f:
             pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
     elif style == "separete":
         if not os.path.exists(name):
             os.makedirs(name)
-        sim_id = 0
         if keys is None:
             print('Warning: keys is None. All keys will be saved.')
             keys = obj.keys()
-        while any([os.path.exists(f"{name}/{key}_{sim_id}.pkl") for key in obj.keys()]):
-            sim_id += 1
+        if simularion_version is not None:
+            sim_id = 0
+            while any([os.path.exists(f"{name}/{key}_{sim_id}.pkl") for key in obj.keys()]):
+                sim_id += 1
+        else:
+            sim_id = simularion_version
         for key in obj.keys():
 
             with open(f"{name}/{key}_{sim_id}.pkl", 'wb') as f:

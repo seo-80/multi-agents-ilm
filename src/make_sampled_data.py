@@ -8,7 +8,8 @@ import pickle
 import ilm
 import data_manager
 DATA_DIR = os.environ['ONEDRIVE'] + "/SekiLabo/res_language/ilm/data"
-PLOT_OBJS = "distance"
+PLOT_OBJS = "oldness"
+simularion_version = 0
 
 def sample_data(data, span):
     sampled_data = []
@@ -91,13 +92,14 @@ if __name__ == '__main__':
 
         if (os.path.exists(file_path) or os.path.exists(dir_path)):
             print('load', setting_name)
-            rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=None)
+            rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=simularion_version)
 
             # データをサンプリング
-            sampled_data = sample_data(rec.distance, 100)  # スパンを100に設定
+            sampled_data = sample_data(rec[PLOT_OBJS], 100)  # スパンを100に設定
 
             # サンプリングされたデータを保存
-            sampled_file_path = DATA_DIR + '/sampled/' + setting_name + "_sampled.pkl"
+            file_index = f'_{simularion_version}' if simularion_version is not None else ''
+            sampled_file_path =  f"{DATA_DIR}/raw/{setting_name}/{PLOT_OBJS}_sampled{file_index}.pkl"
             save_sampled_data(sampled_data, sampled_file_path)
         else:
             print('Warning: No such file or directory:', setting_name)
