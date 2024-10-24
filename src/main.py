@@ -11,15 +11,16 @@ import data_manager
 import sys
 
 if len(sys.argv) > 1:
-    simularion_version = int(sys.argv[1])
+    simulation_version = int(sys.argv[1])
 else:
+    simulation_version = None
     print('No simulation number is given. Use the youngest simulation.')
 
-
+np.random.seed(simulation_version)
 
 # 引数の定義
-SAVE_RESULT = False  # Set to True to save simulation results
-LOAD_RESULT = True
+SAVE_RESULT = True  # Set to True to save simulation results
+LOAD_RESULT = False
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
@@ -189,7 +190,7 @@ for i in range(setting_count):
     dir_path = DATA_DIR + '/raw/' +setting_name
     if LOAD_RESULT and (os.path.exists(file_path) or os.path.exists(dir_path)):
         print('load', setting_name)
-        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=simularion_version)
+        rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=simulation_version)
     else:
         print('simulate', setting_name)
         rec = ilm.simulate(
@@ -199,7 +200,7 @@ for i in range(setting_count):
         rec.compute_oldness()
         rec.compute_variance('oldness')
         if SAVE_RESULT:
-            data_manager.save_obj(rec, DATA_DIR + '/raw/' + setting_name, SAVE_KEYS, style="separete", simularion_version=simularion_version)
+            data_manager.save_obj(rec, DATA_DIR + '/raw/' + setting_name, SAVE_KEYS, style="separete", simulation_version=simulation_version)
 
 
 
