@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import pickle
+import hashlib
 
 
 
@@ -16,7 +17,39 @@ else:
     simulation_version = None
     print('No simulation number is given. Use the youngest simulation.')
 
-np.random.seed(simulation_version)
+def generate_simulation_seed(
+    simulation_id: int,
+    salt: Optional[str] = None,
+    max_seed: int = 2**32 - 1
+) -> int:
+    """シミュレーション用の再現可能で分散した乱数シードを生成する
+    
+    Args:
+        simulation_id: シミュレーション番号
+        salt: 追加のランダム性を持たせるための文字列（オプション）
+        max_seed: 生成するシードの最大値
+    
+    Returns:
+        int: 乱数シード値
+    """
+    # simulation_idを文字列に変換
+    id_str = str(simulation_id)
+    
+    # saltが指定されている場合は結合
+    if salt:
+        id_str = f"{salt}_{id_str}"
+    
+    # SHA-256ハッシュを計算
+    hash_obj = hashlib.sha256(id_str.encode())
+    hash_hex = hash_obj.hexdigest()
+    
+    # ハッシュ値を整数に変換し、指定範囲内に収める
+    hash_int = int(hash_hex, 16)
+    seed = hash_int % (max_seed + 1)
+    
+    return seed
+seed = generate_simulation_seed(simulation_version)
+
 
 # 引数の定義
 SAVE_RESULT = True  # Set to True to save simulation results
@@ -193,6 +226,7 @@ for i in range(setting_count):
         rec = data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=simulation_version)
     else:
         print('simulate', setting_name)
+        np.random.seed(seed)
         rec = ilm.simulate(
             args[i]
         )
