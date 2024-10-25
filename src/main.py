@@ -3,7 +3,8 @@ import matplotlib.pyplot as plt
 import os
 import pickle
 import hashlib
-
+import time
+from typing import Optional
 
 
 import ilm
@@ -14,7 +15,7 @@ import sys
 if len(sys.argv) > 1:
     simulation_version = int(sys.argv[1])
 else:
-    simulation_version = None
+    simulation_version = 0
     print('No simulation number is given. Use the youngest simulation.')
 
 def generate_simulation_seed(
@@ -58,7 +59,7 @@ PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
 SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
-SAVE_KEYS = ["record", "expected_distance", "expected_oldness", 'variance_oldness']
+SAVE_KEYS = ["record", "expected_distance", "expected_oldness", 'variance_oldness', 'variance_distance']
 
 PLOT_SCALE = True  # Set to True to scale the plot. 
 PLOT_SCALE_TYPE = "linear"  # Options: "linear" or "log"
@@ -160,7 +161,7 @@ fr = 0.01
 data_size = 100
 alpha = data_size*alpha_per_data
 unique_args = {
-    "simulation_count": [ 1000000],
+    "simulation_count": [ 100000],
     "agents_count": [15],
     # "simulate_type":["markov_chain"],
     "simulate_type":["monte_carlo"],
@@ -419,5 +420,5 @@ def send_line_notify(notification_message):
     headers = {'Authorization': f'Bearer {line_notify_token}'}
     data = {'message': f'message: {notification_message}'}
     requests.post(line_notify_api, headers = headers, data = data)
-if os.environ.get('LINE_NOTIFY'):
-    send_line_notify("Simulation finished!")
+
+send_line_notify(f"Simulation finished!{simulation_version}")

@@ -1,4 +1,5 @@
 import numpy 
+rng = numpy.random.Generator(numpy.random.MT19937())
 
 def agent(agent_type:str):
     if agent_type=="BayesianFiniteVariantsAgent":
@@ -36,7 +37,7 @@ class BayesianFiniteVariantsAgent:
     def produce(self , n=None):
         # if n is None:
         #     n=self.__variants_count
-        return numpy.random.multinomial(n=n, pvals=self.__hypothesis)
+        return rng.multinomial(n=n, pvals=self.__hypothesis)
 
     @property
     def data_size(self) -> int:
@@ -87,14 +88,14 @@ class BayesianInfiniteVariantsAgent:
         ret_data=numpy.empty(n)
         if n is None:
             n=self.__data_size
-        new_word_count=numpy.random.binomial(n,self.__alpha/(self.__data_size+self.__alpha))
+        new_word_count=rng.binomial(n,self.__alpha/(self.__data_size+self.__alpha))
         if self.__data is None:
             return numpy.array([[self.__generation,self.__agent_number,i] for i in range(n)],dtype=numpy.uint32)#,casting="unsafe")
         else:
             if new_word_count==0:
-                return self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :]
+                return self.__data[rng.integers(self.__data_size, size=n-new_word_count), :]
             else:
-                return numpy.concatenate([self.__data[numpy.random.randint(self.__data_size, size=n-new_word_count), :], numpy.array([[self.__generation,self.__agent_number,i] for i in range(new_word_count)])],dtype=numpy.uint32,casting="unsafe")
+                return numpy.concatenate([self.__data[rng.integers(self.__data_size, size=n-new_word_count), :], numpy.array([[self.__generation,self.__agent_number,i] for i in range(new_word_count)])],dtype=numpy.uint32,casting="unsafe")
 
     @property
     def hypothesis(self) -> numpy.array:
