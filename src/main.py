@@ -23,16 +23,6 @@ def generate_simulation_seed(
     salt: Optional[str] = None,
     max_seed: int = 2**32 - 1
 ) -> int:
-    """シミュレーション用の再現可能で分散した乱数シードを生成する
-    
-    Args:
-        simulation_id: シミュレーション番号
-        salt: 追加のランダム性を持たせるための文字列（オプション）
-        max_seed: 生成するシードの最大値
-    
-    Returns:
-        int: 乱数シード値
-    """
     # simulation_idを文字列に変換
     id_str = str(simulation_id)
     
@@ -59,7 +49,7 @@ PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
 SAVE_DISTANCES = True  # Set to True to save distance matrices
 SAVE_EX_DISTANCE = True  # Set to True to save expected distance matrices
-SAVE_KEYS = ["record", "expected_distance", "expected_oldness", 'variance_oldness', 'variance_distance']
+SAVE_KEYS = [ "expected_distance", "expected_oldness", 'variance_oldness', 'variance_distance']
 
 PLOT_SCALE = True  # Set to True to scale the plot. 
 PLOT_SCALE_TYPE = "linear"  # Options: "linear" or "log"
@@ -161,7 +151,7 @@ fr = 0.01
 data_size = 100
 alpha = data_size*alpha_per_data
 unique_args = {
-    "simulation_count": [ 100000],
+    "simulation_count": [ 1000000],
     "agents_count": [15],
     # "simulate_type":["markov_chain"],
     "simulate_type":["monte_carlo"],

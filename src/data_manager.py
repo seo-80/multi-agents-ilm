@@ -19,14 +19,15 @@ def save_obj(obj, name, keys = None, style = "separete", simulation_version = No
         if keys is None:
             print('Warning: keys is None. All keys will be saved.')
             keys = obj.keys()
-        if simulation_version is not None:
+        if simulation_version is None:
             sim_id = 0
             while any([os.path.exists(f"{name}/{key}_{sim_id}.pkl") for key in obj.keys()]):
                 sim_id += 1
         else:
             sim_id = simulation_version
-        for key in obj.keys():
-
+        if keys is None:
+            keys = obj.keys()
+        for key in keys:
             with open(f"{name}/{key}_{sim_id}.pkl", 'wb') as f:
                 pickle.dump(obj[key], f, pickle.HIGHEST_PROTOCOL)
 
