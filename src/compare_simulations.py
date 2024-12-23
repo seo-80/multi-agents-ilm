@@ -189,19 +189,19 @@ for i in range(setting_count):
         rec = []
         simulation_version = 0
         while True:
-            if simulation_version > 10:
+            if simulation_version > 350:
                 break
             try:
                 rec.append(data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=simulation_version)[PLOT_OBJS])
-                simulation_version += 1
             except:
-                break
+                pass
+            simulation_version += 1
     else:
 
         print('no simulation',dir_path)
 
 
-
+    print('simulation_num:',len(rec))
 
     plt_data.append(rec)
     rec = None
@@ -340,6 +340,23 @@ if PLOT_STYLE == "line":
             raise ValueError("invalid PLOT_OBJS")
         ax[i].get_xaxis().set_visible(False)
         ax[i].get_yaxis().set_visible(False)
+            # Save figure with appropriate name based on plot settings
+    save_name = ''
+    
+    if PLOT_OBJS == "expected_distance":
+        save_name += "_distance"
+    elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
+        save_name += "_oldness"
+    elif "variance_oldness" in PLOT_OBJS:
+        save_name += "_variance"
+        
+    if PLOT_SCALE:
+        save_name += f"_{PLOT_SCALE_TYPE}_scale"
+        
+    save_name += ".png"
+    
+    plt.savefig(os.path.join(DATA_DIR, 'fig', save_name))
+
     plt.show()
 
 if PLOT_STYLE == "comulative_average":
