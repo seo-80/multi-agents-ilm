@@ -316,8 +316,8 @@ if PLOT_STYLE == "grid":
                 max_oldness = 1750
                 min_oldness = 750
                 scale_interval = 250
-            # plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness, scale_interval)
-            plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness)
+            plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness, scale_interval)
+            # plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness)
         elif PLOT_OBJS == "distance_sampled" or PLOT_OBJS == "distance" or PLOT_OBJS =='oldness_sampled' or PLOT_OBJS == 'oldness':
             ax[i, j].plot(np.array(plt_data[j*ax.shape[1]+i]).reshape(10000,-1)[-500:])
         else:
