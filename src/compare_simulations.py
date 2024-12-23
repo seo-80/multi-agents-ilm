@@ -308,6 +308,10 @@ if PLOT_STYLE == "grid":
                 max_oldness = 32000
                 min_oldness = 10000
                 scale_interval = 2500
+            elif j ==0:
+                max_oldness = 1050
+                min_oldness = 950
+                scale_interval = 25
             else:
                 max_oldness = 1750
                 min_oldness = 750
