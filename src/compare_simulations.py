@@ -29,7 +29,7 @@ PLOT_STYLE = "grid"  # Options: "grid" or "line"
 # PLOT_STYLE = "comulative_average"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
-# PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
+PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
 
 # PLOT_OBJS = "oldness_sampled"  # Options: "distance" or "oldness"
 # PLOT_OBJS = ["expected_oldness", "variance_oldness"]  # Options: "distance" or "oldness"
@@ -233,16 +233,20 @@ def plot_distance(ax, distance):
         ax.get_yaxis().set_visible(False)
         fig.colorbar(im, ax=ax)
 
-def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=None, plot_mean=True):
+def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=None, plot_mean=True, plot_variance_only = False):
+    print("plot oldness")
     if type(oldness) == list:
         if plot_mean:
             mean = np.mean(oldness, axis=0)
             sv = np.sqrt(np.var(oldness, axis=0))
-            plot_oldness(ax, mean,min_oldness, max_oldness, scale_interval, plot_mean=False)
-            ax.fill_between(range(len(mean)), mean - sv, mean + sv, alpha=0.3)
+            if plot_variance_only:
+                ax.plot(sv)
+            else:
+                plot_oldness(ax, mean,min_oldness, max_oldness, scale_interval, plot_mean=False, plot_variance_only=plot_variance_only)
+                ax.fill_between(range(len(mean)), mean - sv, mean + sv, alpha=0.3)
         else:
             for i in range(len(oldness)):
-                plot_oldness(ax, oldness[i],min_oldness, max_oldness, scale_interval)
+                plot_oldness(ax, oldness[i],min_oldness, max_oldness, scale_interval, plot_variance_only=plot_variance_only)
     else:
         variance_oldness = None
         if type(oldness) == list:
@@ -257,23 +261,25 @@ def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=
                 min_oldness = 0.1
             else:
                 min_oldness = 0
-        ax.plot(oldness)
-        if variance_oldness is not None:
-            ax.fill_between(range(len(oldness)), oldness - np.sqrt(variance_oldness), oldness + np.sqrt(variance_oldness), alpha=0.3)
-        ax.scatter(range(len(oldness)), oldness, s=5)
-        ax.set_ylim(top=max_oldness)
-        ax.set_yscale(PLOT_SCALE_TYPE)
-        if scale_interval is not None:
-            ax.set_yticks(np.arange(min_oldness, max_oldness, scale_interval))
-        ax.ticklabel_format(style='plain', axis='y', useOffset=False)
-        ax.tick_params(axis='y', labelsize=7)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x))))
-        ax.set_ylim(bottom=min_oldness)
+        if plot_variance_only and variance_oldness is not None:
+            ax.plot(np.sqrt(variance_oldness))
+        else:
+            ax.plot(oldness)
+            if variance_oldness is not None:
+                print("plot variance")
+                ax.fill_between(range(len(oldness)), oldness - np.sqrt(variance_oldness), oldness + np.sqrt(variance_oldness), alpha=0.3)
+            ax.scatter(range(len(oldness)), oldness, s=5)
+            ax.set_ylim(top=max_oldness)
+            ax.set_yscale(PLOT_SCALE_TYPE)
+            if scale_interval is not None:
+                ax.set_yticks(np.arange(min_oldness, max_oldness, scale_interval))
+            ax.ticklabel_format(style='plain', axis='y', useOffset=False)
+            ax.tick_params(axis='y', labelsize=7)
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, loc: "{:,}".format(int(x))))
+            ax.set_ylim(bottom=min_oldness)
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(PLOT_SCALE)
 
-        print(oldness)
-        print(variance_oldness)
 
         
 
@@ -322,6 +328,21 @@ if PLOT_STYLE == "grid":
             ax[i, j].plot(np.array(plt_data[j*ax.shape[1]+i]).reshape(10000,-1)[-500:])
         else:
             raise ValueError("invalid PLOT_OBJS")
+    save_name = ''
+    
+    if PLOT_OBJS == "expected_distance":
+        save_name += "_distance"
+    elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
+        save_name += "_oldness"
+    elif "variance_oldness" in PLOT_OBJS:
+        save_name += "_variance"
+        
+    if PLOT_SCALE:
+        save_name += f"_{PLOT_SCALE_TYPE}_scale"
+        
+    save_name += ".png"
+    print(f'save {save_name}')
+    plt.savefig(os.path.join(DATA_DIR, 'fig', save_name))
     plt.show()
 if PLOT_STYLE == "line":
     fig, ax = plt.subplots(setting_count)
@@ -356,7 +377,7 @@ if PLOT_STYLE == "line":
     save_name += ".png"
     
     plt.savefig(os.path.join(DATA_DIR, 'fig', save_name))
-
+    print(f"save{save_name}")
     plt.show()
 
 if PLOT_STYLE == "comulative_average":
