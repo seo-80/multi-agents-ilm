@@ -41,8 +41,8 @@ PLOT_DISTANCE_FROM_ONE = False
 DATA_DIR = os.path.dirname(__file__) + "/../data"
 # 事前に環境変数ONEDRIVEを設定しておく
 DATA_DIR = os.environ['ONEDRIVE'] + "/SekiLabo/res_language/ilm/data"
-DATA_DIR = '~/Downloads'
-DATA_DIR = '/Users/hachimaruseo/Downloads'
+# DATA_DIR = '~/Downloads'
+# DATA_DIR = '/Users/hachimaruseo/Downloads'
 # 引数の定義
 
 agents_count = 7
@@ -241,6 +241,7 @@ def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=
             sv = np.sqrt(np.var(oldness, axis=0))
             if plot_variance_only:
                 ax.plot(sv)
+                ax.set_ylim(bottom=0)
             else:
                 plot_oldness(ax, mean,min_oldness, max_oldness, scale_interval, plot_mean=False, plot_variance_only=plot_variance_only)
                 ax.fill_between(range(len(mean)), mean - sv, mean + sv, alpha=0.3)
@@ -343,6 +344,17 @@ if PLOT_STYLE == "grid":
     save_name += ".png"
     print(f'save {save_name}')
     plt.savefig(os.path.join(DATA_DIR, 'fig', save_name))
+    
+    # Save plot data as CSV
+    csv_save_name = save_name.replace('.png', '.csv')
+    for i, j in np.ndindex(ax.shape):
+        data = plt_data[j*ax.shape[1]+i]
+        os.makedirs(os.path.join(DATA_DIR, 'data'), exist_ok=True)
+        csv_path = os.path.join(DATA_DIR, 'data', f'plot_data_{i}_{j}_{csv_save_name}')
+        np.savetxt(csv_path, np.array(data), delimiter=',')
+        print(f'Saved data to {csv_path}')
+        
+    print(os.path.join(DATA_DIR, 'fig', save_name))
     plt.show()
 if PLOT_STYLE == "line":
     fig, ax = plt.subplots(setting_count)
