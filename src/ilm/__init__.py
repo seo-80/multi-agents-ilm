@@ -157,7 +157,7 @@ def generate_datas(agents_list,data_flow_counts):#todo generaize this function
         for i,_ in enumerate(agents_list):
             for j,learner in enumerate(agents_list):
                 if data_flow_counts[i][j] > 0:
-                    if datas[i] == []:
+                    if datas[i].size == 0:
                         datas[i] = agents_list[j].produce(n=data_flow_counts[i][j])
                     else:
                         datas[i] = np.concatenate((datas[i], agents_list[j].produce(n=data_flow_counts[i][j])))
