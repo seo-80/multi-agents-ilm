@@ -12,8 +12,18 @@ import data_manager
 # シミュレーション番号を引数として受け取る
 import sys
 
-if len(sys.argv) > 1:
-    simulation_version = int(sys.argv[1])
+import argparse
+
+# Add argument parsing
+parser = argparse.ArgumentParser(description="Simulation script")
+parser.add_argument("--simulation_number", type=int, default=0, help="Simulation number")
+parser.add_argument("--alpha", type=float, default=0.1, help="Alpha value for the simulation")
+parser.add_argument("--fr", type=float, default=0.01, help="Flow rate for the simulation")
+parser.add_argument("--data_size", type=int, default=100, help="Data size for the simulation")
+args = parser.parse_args()
+print(args)
+if args.simulation_number:
+    simulation_version = args.simulation_number
 else:
     simulation_version = 0
     print('No simulation number is given. Use the youngest simulation.')
@@ -113,43 +123,16 @@ agents_arguments = [{
 network_args = [{
     "outward_flow_rate": fr,
 } for fr in np.linspace(0.01, 1, 5)]
-unique_args = {
-    "simulation_count": [ 100000],
-    # "simulate_type":["monte_carlo"],
-    "agent": [ "BayesianInfiniteVariantsAgent"],
-    "agents_arguments": agents_arguments,
-    "network_args": network_args,
-}
-#データ数100
-alpha=0.1
-fr = 0.01
-unique_args = {
-    "simulation_count": [ 1000000],
-    "agents_count": [15],
-    "simulate_type":["monte_carlo"],
-    "agent": [ "BayesianInfiniteVariantsAgent"],
-    "agents_arguments": [{
-    # "alpha":1/7,
-    "alpha":alpha,
-    "data_size":100,
-    "nonzero_alpha":"evely"
-},{
-    # "alpha":1/7,
-    "alpha":alpha,
-    "data_size":100,
-    "nonzero_alpha":"center"
-} ],
-    "network_args": [{
-    "bidirectional_flow_rate": fr,
-}, {
-    "outward_flow_rate": fr,
-}, 
-],
-}
+
+
 alpha_per_data=0.001
 fr = 0.01
 data_size = 100
 alpha = data_size*alpha_per_data
+
+fr = args.fr
+data_size = args.data_size
+alpha = args.alpha
 unique_args = {
     "simulation_count": [ 1000000],
     "agents_count": [15],
@@ -175,21 +158,7 @@ unique_args = {
 ],
 }
 
-# unique_args = {
-#     "simulation_count": [ 100],
-#     "agent": [ "BayesianInfiniteVariantsAgent"],
-#     "agents_arguments": [{
-#     "alpha":1,
-#     "data_size":data_size,
-#     "variants_count":variants_count,
-#     "nonzero_alpha":nonzero_alpha
-# } ],
-#     "agents_count": [3],
-#     "network_args": [{
-#     "outward_flow_rate": 0.1,
-#     }],
-#     "initial_states": [None, np.array([1, 1, 1])],
-# }
+
 setting_count = np.prod([len(unique_args[key]) for key in unique_args.keys()])
 args = [defalut_args.copy() for _ in range(setting_count)]
 for i in range(setting_count):

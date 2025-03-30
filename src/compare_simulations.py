@@ -200,11 +200,13 @@ for i in range(setting_count):
         print('load', setting_name)
         rec = []
         simulation_version = 0
+        simulation_count = 0
         while True:
-            if simulation_version > 350:
+            if simulation_count >= 200:
                 break
             try:
                 rec.append(data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=simulation_version)[PLOT_OBJS])
+                simulation_count += 1
             except:
                 pass
             simulation_version += 1
