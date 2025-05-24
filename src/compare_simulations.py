@@ -167,7 +167,19 @@ args = [defalut_args.copy() for _ in range(setting_count)]
 for i in range(setting_count):
     for ki, key in enumerate(unique_args.keys()):
         args[i][key] = unique_args[key][int(i // np.prod([len(unique_args[key]) for key in list(unique_args.keys())[ki+1:]])) % len(unique_args[key])]
-
+# Add after the imports
+def compute_stationary_state(W, mu):
+    """
+    Computes stationary state a*
+    """
+    n = W.shape[0]
+    I = np.eye(n)
+    M = np.diag(1 - mu)
+    inv_matrix = np.linalg.inv(I - W @ M)
+    ones_vec = np.ones(n)
+    b = inv_matrix @ ones_vec
+    a_star = b - ones_vec
+    return a_star
 
 
 
@@ -209,10 +221,17 @@ for i in range(setting_count):
 
 def is_concentric_distribution(expected_distance):
     for base in range(len(expected_distance)//2-1):
+        is_consentric = False
         for reference in range(len(expected_distance)):
             if expected_distance[base][reference] < expected_distance[base][len(expected_distance)//2] and reference > len(expected_distance)//2:
-                return True
-    return False
+                is_consentric = True
+        if not is_consentric:
+            print(base)
+            print(expected_distance[base][len(expected_distance)//2])
+            print(expected_distance[base])
+            return False
+                
+    return True
 # print(recs[0].distance)
 
 def plot_distance(ax, distance):
@@ -233,7 +252,7 @@ def plot_distance(ax, distance):
         ax.get_yaxis().set_visible(False)
         fig.colorbar(im, ax=ax)
 
-def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=None, plot_mean=True, plot_variance_only = False):
+def plot_oldness(ax, oldness, min_oldness=None, max_oldness=None, scale_interval=None, plot_mean=True, plot_variance_only=False, analytical_solution=None):
     print("plot oldness")
     if type(oldness) == list:
         if plot_mean:
@@ -243,11 +262,11 @@ def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=
                 ax.plot(sv)
                 ax.set_ylim(bottom=0)
             else:
-                plot_oldness(ax, mean,min_oldness, max_oldness, scale_interval, plot_mean=False, plot_variance_only=plot_variance_only)
+                plot_oldness(ax, mean, min_oldness, max_oldness, scale_interval, plot_mean=False, plot_variance_only=plot_variance_only, analytical_solution=analytical_solution)
                 ax.fill_between(range(len(mean)), mean - sv, mean + sv, alpha=0.3)
         else:
             for i in range(len(oldness)):
-                plot_oldness(ax, oldness[i],min_oldness, max_oldness, scale_interval, plot_variance_only=plot_variance_only)
+                plot_oldness(ax, oldness[i], min_oldness, max_oldness, scale_interval, analytical_solution=analytical_solution)
     else:
         variance_oldness = None
         if type(oldness) == list:
@@ -265,11 +284,16 @@ def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=
         if plot_variance_only and variance_oldness is not None:
             ax.plot(np.sqrt(variance_oldness))
         else:
-            ax.plot(oldness)
+            ax.plot(oldness, label='Simulation')
             if variance_oldness is not None:
-                print("plot variance")
                 ax.fill_between(range(len(oldness)), oldness - np.sqrt(variance_oldness), oldness + np.sqrt(variance_oldness), alpha=0.3)
             ax.scatter(range(len(oldness)), oldness, s=5)
+            
+            # Plot analytical solution if provided
+            if analytical_solution is not None:
+                ax.plot(analytical_solution, '--', color='red', label='Analytical', linewidth=2)
+                # ax.legend()
+            
             ax.set_ylim(top=max_oldness)
             ax.set_yscale(PLOT_SCALE_TYPE)
             if scale_interval is not None:
@@ -280,8 +304,6 @@ def plot_oldness(ax, oldness,min_oldness=None, max_oldness=None, scale_interval=
             ax.set_ylim(bottom=min_oldness)
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(PLOT_SCALE)
-
-
         
 
 
@@ -293,8 +315,6 @@ def comulative_average(data):
     counts = np.arange(1, data.shape[0] +1)
     return cumsum / counts
 
-
-
 if PLOT_STYLE == "grid":
     setting_counts = [len(unique_args[key]) for key in unique_args.keys() if len(unique_args[key])>1]
     fig, ax = plt.subplots(*setting_counts, figsize=(5, 5) if setting_count > 1 else (5, 5))
@@ -303,14 +323,42 @@ if PLOT_STYLE == "grid":
     if setting_count == 1:
         ax = np.array([ax])
     for i, j in np.ndindex(ax.shape):
+        current_setting_idx = j*ax.shape[1]+i
+        current_args = args[current_setting_idx]
+        
+        # Calculate analytical solution
+        analytical_solution = None
+        if PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
+            # Get network parameters from current settings
+            network_args = current_args["network_args"]
+            agents_count = current_args["agents_count"]
+            W = ilm.networks.network(agents_count, network_args)
+            
+            # Get agent parameters
+            agent_args = current_args["agents_arguments"]
+            alpha = agent_args["alpha"]
+            data_size = agent_args["data_size"]
+            nonzero_alpha = agent_args["nonzero_alpha"]
+            
+            # Calculate mu based on nonzero_alpha setting
+            mu = np.zeros(agents_count)
+            if nonzero_alpha == "evely":
+                mu = np.ones(agents_count) * alpha / (data_size + alpha)
+            elif nonzero_alpha == "center":
+                mu[agents_count // 2] = alpha / (data_size + alpha)
+            
+            # Compute analytical solution
+            analytical_solution = compute_stationary_state(W, mu)
+            print(f"Setting {current_setting_idx}: alpha={alpha}, data_size={data_size}, nonzero_alpha={nonzero_alpha}")
+            print("Analytical solution:", analytical_solution)
+        
         if PLOT_OBJS == "expected_distance":
-            plot_distance(ax[i, j], plt_data[j*ax.shape[1]+i])
+            print("fignum",i,j)
+            print(is_concentric_distribution(np.mean(plt_data[current_setting_idx], axis=0)))
+            plot_distance(ax[i, j], plt_data[current_setting_idx])
         elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness" or "variance_oldness" in PLOT_OBJS:
             max_oldness = np.max([np.max(d) for d in plt_data])
             min_oldness = np.min([np.min(d) for d in plt_data])
-            # max_oldness = None
-            # min_oldness = None
-            # scale_interval = None
             if i==0 and j==1:
                 max_oldness = 32000
                 min_oldness = 10000
@@ -323,7 +371,7 @@ if PLOT_STYLE == "grid":
                 max_oldness = 1750
                 min_oldness = 750
                 scale_interval = 250
-            plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness, scale_interval)
+            plot_oldness(ax[i, j], plt_data[current_setting_idx], min_oldness, max_oldness, scale_interval, analytical_solution=analytical_solution)
             # plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness)
         elif PLOT_OBJS == "distance_sampled" or PLOT_OBJS == "distance" or PLOT_OBJS =='oldness_sampled' or PLOT_OBJS == 'oldness':
             ax[i, j].plot(np.array(plt_data[j*ax.shape[1]+i]).reshape(10000,-1)[-500:])
@@ -341,20 +389,9 @@ if PLOT_STYLE == "grid":
     if PLOT_SCALE:
         save_name += f"_{PLOT_SCALE_TYPE}_scale"
         
-    save_name += ".png"
+    save_name += "_with_numeric.png"
     print(f'save {save_name}')
     plt.savefig(os.path.join(DATA_DIR, 'fig', save_name))
-    
-    # Save plot data as CSV
-    csv_save_name = save_name.replace('.png', '.csv')
-    for i, j in np.ndindex(ax.shape):
-        data = plt_data[j*ax.shape[1]+i]
-        os.makedirs(os.path.join(DATA_DIR, 'data'), exist_ok=True)
-        csv_path = os.path.join(DATA_DIR, 'data', f'plot_data_{i}_{j}_{csv_save_name}')
-        np.savetxt(csv_path, np.array(data), delimiter=',')
-        print(f'Saved data to {csv_path}')
-        
-    print(os.path.join(DATA_DIR, 'fig', save_name))
     plt.show()
 if PLOT_STYLE == "line":
     fig, ax = plt.subplots(setting_count)
