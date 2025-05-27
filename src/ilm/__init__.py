@@ -145,23 +145,21 @@ def simulate_markov_chain(
     return recorder
     
 
-def generate_datas(agents_list,data_flow_counts):#todo generaize this function
+def generate_datas(agents_list, data_flow_counts):  # todo generalize this function
     if type(agents_list[0]) == agents.BayesianFiniteVariantsAgent:
-        datas=np.zeros((len(agents_list),agents_list[0].variants_count))
-        for i,_ in enumerate(agents_list):
-            for j,learner in enumerate(agents_list):
-                datas[i]+=agents_list[j].produce(n=data_flow_counts[i][j])
+        datas = np.zeros((len(agents_list), agents_list[0].variants_count))
+        for i, _ in enumerate(agents_list):
+            for j, learner in enumerate(agents_list):
+                datas[i] += agents_list[j].produce(n=data_flow_counts[i][j])
         return datas
     elif type(agents_list[0]) == agents.BayesianInfiniteVariantsAgent:
-        datas=[[] for _ in agents_list]
-        for i,_ in enumerate(agents_list):
-            for j,learner in enumerate(agents_list):
+        datas = [None for _ in agents_list]
+        for i, _ in enumerate(agents_list):
+            for j, learner in enumerate(agents_list):
                 if data_flow_counts[i][j] > 0:
-                    if datas[i] == []:
+                    if datas[i] is None:
                         datas[i] = agents_list[j].produce(n=data_flow_counts[i][j])
                     else:
                         datas[i] = np.concatenate((datas[i], agents_list[j].produce(n=data_flow_counts[i][j])))
-                        # datas[i] = concat(datas[i], agents_list[j].produce(n=data_flow_counts[i][j]))
         return np.array(datas)
-        
-        
+

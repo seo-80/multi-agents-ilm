@@ -43,7 +43,7 @@ seed = generate_simulation_seed(simulation_version)
 
 
 # 引数の定義
-SAVE_RESULT = True  # Set to True to save simulation results
+SAVE_RESULT = False  # Set to True to save simulation results
 LOAD_RESULT = False
 PLOT_RESULT = True
 SAVE_STATES = False  # Set to True to save raw simulation data
@@ -60,12 +60,14 @@ PLOT_STYLE = "grid"  # Options: "grid" or "line"
 # PLOT_STYLE = "comulative_average"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
+# PLOT_OBJS = "distance_by_origin"  # Options: "distance" or "oldness"
 # PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
 # PLOT_OBJS = "oldness_sampled"  # Options: "distance" or "oldness"
 # PLOT_OBJS = ["expected_oldness", "variance_oldness"]  # Options: "distance" or "oldness"
 # PLOT_OBJS = "distance"  # Options: "distance" or "oldness"
 # PLOT_OBJS = 'comulative_average'
-PLOT_DISTANCE_FROM_ONE = False
+view_agent = 2  # 追加: 特定エージェント視点で可視化したい場合はインデックスを指定
+view_agent = None  # 追加: 特定エージェント視点で可視化したい場合はインデックスを指定
 
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
@@ -151,7 +153,7 @@ fr = 0.01
 data_size = 100
 alpha = data_size*alpha_per_data
 unique_args = {
-    "simulation_count": [ 1000000],
+    "simulation_count": [ 100],
     "agents_count": [15],
     # "simulate_type":["markov_chain"],
     "simulate_type":["monte_carlo"],
@@ -173,6 +175,24 @@ unique_args = {
     "outward_flow_rate": fr,
 },
 ],
+}
+alphas = [0.0001, 0.001, 0.01, 0.1, 1]
+fr = 0.0001
+unique_args = {
+    "simulation_count": [ 10000],
+    "agents_count": [5],
+    "simulate_type":["markov_chain"],
+    # "simulate_type":["monte_carlo"],
+    "agent": [ "BayesianInfiniteVariantsAgent"],
+    "agents_arguments": [{
+    # "alpha":1/7,  
+    "alpha":alpha,
+    "data_size":10,
+    "nonzero_alpha":"evely"
+} for alpha in alphas],
+    "network_args": [{
+    "bidirectional_flow_rate": fr,
+} for fr in np.linspace(0.01, 1, 5)]
 }
 
 # unique_args = {
@@ -200,7 +220,19 @@ for i in range(setting_count):
 
 
 recorder = "data"
-
+def is_concentric_distribution(expected_distance):
+    for base in range(len(expected_distance)//2-1):
+        is_consentric = False
+        for reference in range(len(expected_distance)):
+            if expected_distance[base][reference] < expected_distance[base][len(expected_distance)//2] and reference > len(expected_distance)//2:
+                is_consentric = True
+        if not is_consentric:
+            # print(base)
+            # print(expected_distance[base][len(expected_distance)//2])
+            # print(expected_distance[base])
+            return False
+                
+    return True
 
 setting_count = len(args)
 
@@ -223,7 +255,7 @@ for i in range(setting_count):
         )
         rec.compute_distance()
         rec.compute_oldness()
-        rec.compute_variance('oldness')
+        # rec.compute_variance('oldness')
         if SAVE_RESULT:
             data_manager.save_obj(rec, DATA_DIR + '/raw/' + setting_name, SAVE_KEYS, style="separete", simulation_version=simulation_version)
 
@@ -240,7 +272,25 @@ for i in range(setting_count):
             raise ValueError("simulate_type must be 'markov_chain' or 'monte_carlo'")
     elif args[i]["agent"] == "BayesianInfiniteVariantsAgent":
         if type(PLOT_OBJS) == str:
-            plt_data.append(getattr(rec, PLOT_OBJS))
+            if args[i]["simulate_type"] == "markov_chain":
+                if PLOT_OBJS == "expected_distance":
+                    plt_data.append(np.sum(rec.expected_distance, axis=0))
+                    print(is_concentric_distribution(np.sum(rec.expected_distance, axis=0)))
+                    if is_concentric_distribution(np.sum(rec.expected_distance, axis=0)):
+                        print("===================Concentric distribution detected=====================")
+                else:
+                    plt_data.append(getattr(rec, PLOT_OBJS))
+            else:
+                if PLOT_OBJS == "distance_by_origin":
+                    # originごとのdistanceを可視化用に格納
+                    print("ec.distance_by_origin",rec.distance_by_origin.shape)
+                    plt_data.append(rec.distance_by_origin)
+                elif PLOT_OBJS == "expected_distance":
+                    plt_data.append(np.mean(rec.expected_distance, axis=0))
+                elif PLOT_OBJS == "expected_oldness":
+                    plt_data.append(np.mean(rec.expected_oldness, axis=0))
+                else:
+                    plt_data.append(getattr(rec, PLOT_OBJS))
         elif type(PLOT_OBJS) == list:
             plt_data.append([getattr(rec, obj) for obj in PLOT_OBJS])
 
@@ -249,21 +299,19 @@ for i in range(setting_count):
     rec = None
 
 
-def is_concentric_distribution(expected_distance):
-    for base in range(len(expected_distance)//2-1):
-        for reference in range(len(expected_distance)):
-            if expected_distance[base][reference] < expected_distance[base][len(expected_distance)//2] and reference > len(expected_distance)//2:
-                return True
-    return False
+
+
 # print(recs[0].distance)
 
+
 def plot_distance(ax, distance):
-    if PLOT_DISTANCE_FROM_ONE:
-        ax.bar(range(len(distance)), distance[:, 2])
-        ax.bar(len(distance)//2, distance[len(distance)//2, 2], color="red")
+    if view_agent is not None:
+        # view_agentから見た距離を棒グラフで表示
+        ax.bar(range(distance.shape[1]), distance[view_agent])
+        ax.set_title(f"Distance from agent {view_agent}")
         ax.set_ylim(bottom=0)
-        ax.get_xaxis().set_visible(False)
-        ax.get_yaxis().set_visible(False)
+        ax.get_xaxis().set_visible(True)
+        ax.get_yaxis().set_visible(True)
     else:
         im = ax.pcolor(distance)
         ax.invert_yaxis()
@@ -324,29 +372,35 @@ if PLOT_STYLE == "grid":
     
     if setting_count == 1:
         ax = np.array([ax])
-    for i, j in np.ndindex(ax.shape):
+    # Use flat iteration to avoid index errors
+    print("plt_data:", plt_data)
+    for axis, data in zip(ax.flat, plt_data):
         if PLOT_OBJS == "expected_distance":
-            plot_distance(ax[i, j], plt_data[j*ax.shape[1]+i])
+            plot_distance(axis, data)
+        elif PLOT_OBJS == "distance_by_origin":
+            distance_by_origin = data
+            agents_count = distance_by_origin.shape[1]
+            for origin in range(distance_by_origin.shape[0]):
+                axis.plot(distance_by_origin[origin,view_agent,:], label=f"Origin {origin}")
+            axis.set_title("Distance by Origin (line plot)")
+            axis.set_xlabel("Agent")
+            axis.set_ylabel("Distance")
+            # axis.legend()  # 個別のlegendは削除
         elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness" or "variance_oldness" in PLOT_OBJS:
             max_oldness = np.max(plt_data)
             min_oldness = np.min(plt_data)
             max_oldness = None
             min_oldness = None
             scale_interval = None
-            if i==0 and j==1:
-                max_oldness = 22500
-                min_oldness = 12500
-                scale_interval = 2500
-            else:
-                max_oldness = 1750
-                min_oldness = 750
-                scale_interval = 250
-            plot_oldness(ax[i, j], plt_data[j*ax.shape[1]+i], min_oldness,max_oldness, scale_interval)
+            plot_oldness(axis, data, min_oldness, max_oldness, scale_interval)
         elif PLOT_OBJS == "distance_sampled" or PLOT_OBJS == "distance" or PLOT_OBJS =='oldness_sampled' or PLOT_OBJS == 'oldness':
-            ax[i, j].plot(np.array(plt_data[j*ax.shape[1]+i]).reshape(10000,-1)[-500:])
+            axis.plot(np.array(data).reshape(10000,-1)[-500:])
         else:
             raise ValueError("invalid PLOT_OBJS")
-    plt.show()
+# ループの外で全体legendを追加
+if PLOT_OBJS == "distance_by_origin":
+    fig.legend(loc='upper right')
+plt.show()
 if PLOT_STYLE == "line":
     fig, ax = plt.subplots(setting_count)
     if setting_count == 1:
