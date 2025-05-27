@@ -151,6 +151,10 @@ def generate_datas(agents_list, data_flow_counts):  # todo generalize this funct
         for i, _ in enumerate(agents_list):
             for j, learner in enumerate(agents_list):
                 datas[i] += agents_list[j].produce(n=data_flow_counts[i][j])
+        datas = np.zeros((len(agents_list), agents_list[0].variants_count))
+        for i, _ in enumerate(agents_list):
+            for j, learner in enumerate(agents_list):
+                datas[i] += agents_list[j].produce(n=data_flow_counts[i][j])
         return datas
     elif type(agents_list[0]) == agents.BayesianInfiniteVariantsAgent:
         datas = [None for _ in agents_list]

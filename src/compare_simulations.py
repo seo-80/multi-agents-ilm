@@ -29,13 +29,15 @@ PLOT_STYLE = "grid"  # Options: "grid" or "line"
 # PLOT_STYLE = "comulative_average"  # Options: "grid" or "line"
 PLOT_OBJS = "oldness"  # Options: "distance" or "oldness"
 PLOT_OBJS = "expected_distance"  # Options: "distance" or "oldness"
-PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
+# PLOT_OBJS = "expected_oldness"  # Options: "distance" or "oldness"
 
 # PLOT_OBJS = "oldness_sampled"  # Options: "distance" or "oldness"
 # PLOT_OBJS = ["expected_oldness", "variance_oldness"]  # Options: "distance" or "oldness"
 # PLOT_OBJS = "distance"  # Options: "distance" or "oldness"
 # PLOT_OBJS = 'comulative_average'
-PLOT_DISTANCE_FROM_ONE = False
+PLOT_DISTANCE_FROM_ONE = True
+# 起点となるエージェントの番号（PLOT_DISTANCE_FROM_ONEが有効な場合に使用）
+DISTANCE_BASE_AGENT_INDEX = 3  # 例: 2番目のエージェントを起点にする
 
 
 DATA_DIR = os.path.dirname(__file__) + "/../data"
@@ -200,11 +202,13 @@ for i in range(setting_count):
         print('load', setting_name)
         rec = []
         simulation_version = 0
+        simulation_count = 0
         while True:
-            if simulation_version > 350:
+            if simulation_count >= 200:
                 break
             try:
                 rec.append(data_manager.load_obj(DATA_DIR + '/raw/' + setting_name, PLOT_OBJS, number=simulation_version)[PLOT_OBJS])
+                simulation_count += 1
             except:
                 pass
             simulation_version += 1
@@ -220,27 +224,45 @@ for i in range(setting_count):
 
 
 def is_concentric_distribution(expected_distance):
-    for base in range(len(expected_distance)//2-1):
-        is_consentric = False
+    center = len(expected_distance) // 2
+    for base in range(len(expected_distance)):
+        found = False
+        if base == center:
+            continue
         for reference in range(len(expected_distance)):
-            if expected_distance[base][reference] < expected_distance[base][len(expected_distance)//2] and reference > len(expected_distance)//2:
-                is_consentric = True
-        if not is_consentric:
-            print(base)
-            print(expected_distance[base][len(expected_distance)//2])
-            print(expected_distance[base])
+            # referenceが中心より遠く、かつbaseから見て中心より言語的に近い
+            if abs(reference - base) > abs(center - base) and expected_distance[base][reference] < expected_distance[base][center]:
+                found = True
+                break
+        if not found:
+            # print("not concentric:", base)
             return False
-                
     return True
+def is_concentric_distribution(expected_distance):
+    center = len(expected_distance) // 2
+    for base in range(len(expected_distance)):
+        found = []
+        if base == center:
+            continue
+        for reference in range(len(expected_distance)):
+            # referenceが中心より遠く、かつbaseから見て中心より言語的に近い
+            if abs(reference - base) > abs(center - base) and expected_distance[base][reference] < expected_distance[base][center]:
+                found.append([base, reference])
+                
+        if not found:
+            # print("not concentric:", base)
+            return False
+    return True
+
 # print(recs[0].distance)
 
 def plot_distance(ax, distance):
     distance = np.array(distance)
     if len(distance.shape) == 3:
-        distance = distance.mean(axis=0)
+        distance = distance.sum(axis=0)/distance.shape[0]
     if PLOT_DISTANCE_FROM_ONE:
-        ax.bar(range(len(distance)), distance[:, 2])
-        ax.bar(len(distance)//2, distance[len(distance)//2, 2], color="red")
+        ax.bar(range(len(distance)), distance[:, DISTANCE_BASE_AGENT_INDEX])
+        ax.bar(len(distance)//2, distance[len(distance)//2, DISTANCE_BASE_AGENT_INDEX], color="red")
         ax.set_ylim(bottom=0)
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
@@ -354,7 +376,12 @@ if PLOT_STYLE == "grid":
         
         if PLOT_OBJS == "expected_distance":
             print("fignum",i,j)
-            print(is_concentric_distribution(np.mean(plt_data[current_setting_idx], axis=0)))
+            print("is_concentric_distribution",is_concentric_distribution(np.mean(plt_data[current_setting_idx], axis=0)))
+            concentric_distribution_count = 0
+            for d in plt_data[current_setting_idx]:
+                if is_concentric_distribution(d):
+                    concentric_distribution_count += 1
+            print("concentric_distribution_count", concentric_distribution_count)
             plot_distance(ax[i, j], plt_data[current_setting_idx])
         elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness" or "variance_oldness" in PLOT_OBJS:
             max_oldness = np.max([np.max(d) for d in plt_data])
@@ -381,6 +408,9 @@ if PLOT_STYLE == "grid":
     
     if PLOT_OBJS == "expected_distance":
         save_name += "_distance"
+        if PLOT_DISTANCE_FROM_ONE:
+            save_name += "_distance_from_one"
+            save_name += f"_{DISTANCE_BASE_AGENT_INDEX}"
     elif PLOT_OBJS == "oldness" or PLOT_OBJS == "expected_oldness":
         save_name += "_oldness"
     elif "variance_oldness" in PLOT_OBJS:
@@ -460,5 +490,5 @@ if PLOT_STYLE == "comulative_average":
 #     ax[i].invert_yaxis()
 #     ax[i].pcolor(recs[0].distance[i*1000])
 #     ax[i].set_aspect('equal')
-# plt.show()   
+# plt.show()
 
