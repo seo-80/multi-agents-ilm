@@ -17,7 +17,7 @@ mu = np.ones(agents_count) * alpha_per_data / (1 + alpha_per_data)
 # mu =np.zeros(agents_count)
 # mu[agents_count//2] = alpha_per_data / (1 + alpha_per_data)
 network_args = {"bidirectional_flow_rate": fr}
-network_args = {"outward_flow_rate": fr}
+# network_args = {"outward_flow_rate": fr}
 threshold = 1e-8  # シミュレーション終了の閾値
 
 max_steps = 10000  # 最大ステップ数
@@ -25,16 +25,16 @@ max_steps = 10000  # 最大ステップ数
 
 # --- プロット設定 ---
 PLOT_SETTINGS = {
-    'distance_heatmap': False,
-    'distance_bar': False,
-    'distance_by_origin_line': False,
-    'closeness_heatmap': False,
-    'closeness_bar': False,
-    'closeness_by_origin_line': False,
-    'common_by_origin_line': False,
-    'common_by_origin_bar': False,
-    'final_share_bar': False,
-    'final_share_heatmap': False,
+    'distance_heatmap': True,
+    'distance_bar': True,
+    'distance_by_origin_line': True,
+    'closeness_heatmap': True,
+    'closeness_bar': True,
+    'closeness_by_origin_line': True,
+    'common_by_origin_line': True,
+    'common_by_origin_bar': True,
+    'final_share_bar': True,
+    'final_share_heatmap': True,
     'nei_by_origin_line': True,
     'nei_by_origin_bar': True,
     'nei_total_heatmap': True,
