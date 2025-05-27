@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 import matplotlib.pyplot as plt
 import argparse
 import glob
@@ -65,7 +66,7 @@ if __name__ == "__main__":
     alpha = np.ones(agents_count) * alpha_per_data * sample_size
     mu = np.ones(agents_count) * alpha_per_data / (1 + alpha_per_data)
     network_args = {"outward_flow_rate": fr}
-    # network_args = {"bidirectional_flow_rate": fr}
+    network_args = {"bidirectional_flow_rate": fr}
 
     def network_args_to_dirname(network_args):
         return "_".join(f"{k}_{v}" for k, v in network_args.items())
@@ -79,9 +80,10 @@ if __name__ == "__main__":
     if args.mode == 'save':
         all_freq_histories = []
         all_steps = []
-        for i in range(simulation_count):
-            freq_history,steps = simulate_finite_mutation(agents_count, mu, W, sample_size, seed=i, alpha=alpha)
-            print(f"Simulation {i+1}/{simulation_count}{steps}")
+        timestamp = int(time.time())  # タイムスタンプをここで生成
+        np.random.seed(timestamp)     # ここでseedを設定
+        for i in tqdm(range(simulation_count), desc="Simulating"):
+            freq_history, steps = simulate_finite_mutation(agents_count, mu, W, sample_size, alpha=alpha)
             all_freq_histories.append(freq_history)
             all_steps.append(steps)
         steps_by_origin = np.array(all_steps)  # shape: (simulation_count, agents_count)
@@ -113,7 +115,6 @@ if __name__ == "__main__":
             all_distance_by_origin.append(calc_distance_by_origin(fh))
         all_distance_by_origin = np.array(all_distance_by_origin)
         # 保存
-        timestamp = int(time.time())
         np.save(os.path.join(outdir, f'steps_by_origin_{timestamp}.npy'), steps_by_origin)
         np.save(os.path.join(outdir, f'all_distance_by_origin_{timestamp}.npy'), all_distance_by_origin)
         print(f'Saved to {outdir} (timestamp: {timestamp})')
