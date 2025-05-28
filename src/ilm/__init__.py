@@ -83,6 +83,7 @@ def simulate_markov_chain(
     network_args=None,
     recorder="data",
     initial_states=None,
+    transition_matrix=None,
 ):
     if not type(agent) == str:
         raise ValueError("agent must be a string if simulate_type is 'markov_chain'")
@@ -97,11 +98,14 @@ def simulate_markov_chain(
 
     if type(agents_arguments) == dict:
         agents_arguments = [agents_arguments for _ in range(agents_count)]
-    m = markov_chain.transition_matrix(
-        agents_arguments=agents_arguments,
-        agent_type=agent,
-        network=network,
-    )
+    if transition_matrix is None:
+        m = markov_chain.transition_matrix(
+            agents_arguments=agents_arguments,
+            agent_type=agent,
+            network=network,
+        )
+    else:
+        m = transition_matrix
     states = np.zeros([agents_arguments[i]["data_size"] + 1 for i in range(agents_count)])
     if initial_states is None:
         if agent == "BayesianFiniteVariantsAgent":

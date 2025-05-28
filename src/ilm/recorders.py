@@ -221,6 +221,32 @@ class DataRecorderStateVec(Recorder):
 
         # distances_record =numpy.tensordot(states_record, distances_matrix, axes=(range(1, agents_count + 1), range(2, agents_count + 2)))
 
+    def compute_distance_by_origin(self):
+        """
+        各origin（各エージェント起点）ごとに、全エージェント間のdistance（origin由来単語集合の対称差の大きさ）を計算して返す。
+        shape: (agents_count, agents_count, agents_count)
+        [origin, i, j] = originごとにi, j間のdistance
+        """
+        record = self._Recorder__return_record  # (simulation_count, ...)
+        agents_count = record.shape[1]
+        distance_by_origin = numpy.zeros((agents_count, agents_count, agents_count))
+        for origin in range(agents_count):
+            for i in range(agents_count):
+                nonzero_indices_i = numpy.argwhere(record[:, i, ...] > 0)
+                words_i = set(map(tuple, nonzero_indices_i))
+                words_i_origin = set([w for w in words_i if w[1] == origin])
+                for j in range(agents_count):
+                    nonzero_indices_j = numpy.argwhere(record[:, j, ...] > 0)
+                    words_j = set(map(tuple, nonzero_indices_j))
+                    words_j_origin = set([w for w in words_j if w[1] == origin])
+                    distance_by_origin[origin, i, j] = len(words_i_origin.symmetric_difference(words_j_origin))
+        self.__distance_by_origin = distance_by_origin
+
+    @property
+    def distance_by_origin(self):
+        if not hasattr(self, "__distance_by_origin") or self.__distance_by_origin is None:
+            self.compute_distance_by_origin()
+        return self.__distance_by_origin
 class DistanceRecorder(Recorder):
     def __init__(self,simulation_count,data_shape=None):
         super().__init__(simulation_count=simulation_count,data_shape=data_shape)
@@ -231,4 +257,5 @@ class DistanceRecorder(Recorder):
 class FilterFunction:#argsは(data,agents)
     def filter_data(**kwargs):
         return kwargs["a"]
-        
+    
+

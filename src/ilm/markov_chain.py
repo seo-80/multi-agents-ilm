@@ -2,6 +2,7 @@ import numpy as np
 import tqdm
 import itertools
 import os
+import math
 
 import ilm
 from operator import mul
@@ -28,8 +29,8 @@ def possible_states(
     return ret_states
 
 def binomial(pval, x_v, M):
-    C=np.math.factorial(M)/(np.math.factorial(x_v)*np.math.factorial(M-x_v))
-    prob=C*(pval**x_v*(1-pval)**(M-x_v))
+    C = math.factorial(M) / (math.factorial(x_v) * math.factorial(M - x_v))
+    prob = C * (pval ** x_v * (1 - pval) ** (M - x_v))
     return prob
 
 def transition_probability(prestate, poststate, network, agents_arguments, agent_type):
