@@ -54,6 +54,7 @@ if __name__ == "__main__":
     parser.add_argument('--mode', choices=['save', 'plot'], required=True, help='save: simulate and save, plot: load and plot')
     parser.add_argument('--outdir', type=str, default='data/sim_results', help='directory to save/load npy files')
     parser.add_argument('--simulation_count', type=int, default=1000, help='number of simulations per run (save mode)')
+    parser.add_argument('--save_fig', action='store_true', help='Save figures instead of showing them (plot mode only)')
     args = parser.parse_args()
 
 
@@ -66,7 +67,7 @@ if __name__ == "__main__":
     alpha = np.ones(agents_count) * alpha_per_data * sample_size
     mu = np.ones(agents_count) * alpha_per_data / (1 + alpha_per_data)
     network_args = {"outward_flow_rate": fr}
-    network_args = {"bidirectional_flow_rate": fr}
+    # network_args = {"bidirectional_flow_rate": fr}
 
     def network_args_to_dirname(network_args):
         return "_".join(f"{k}_{v}" for k, v in network_args.items())
@@ -120,33 +121,28 @@ if __name__ == "__main__":
         print(f'Saved to {outdir} (timestamp: {timestamp})')
 
     elif args.mode == 'plot':
-        # ファイルを全てロード
-        steps_files = sorted(glob.glob(os.path.join(outdir, 'steps_by_origin_*.npy')))
+        # ファイルを全てロードせず平均のみ計算
         dist_files = sorted(glob.glob(os.path.join(outdir, 'all_distance_by_origin_*.npy')))
-        steps_list = [np.load(f) for f in steps_files]
-        dist_list = [np.load(f) for f in dist_files]
-        steps_by_origin = np.concatenate(steps_list, axis=0)
-        all_distance_by_origin = np.concatenate(dist_list, axis=0)
-        print(f'Loaded {len(steps_files)} steps files, {len(dist_files)} distance files')
-        # --- 全体のヒストグラム ---
-        plt.figure(figsize=(10, 4))
-        plt.hist(steps_by_origin.flatten(), bins=30, alpha=0.7, color='gray')
-        plt.xlabel('Steps until extinction')
-        plt.ylabel('Frequency')
-        plt.title('Histogram of Steps until Extinction (All Origins)')
-        plt.tight_layout()
-        plt.show()
-        # --- originごとの平均の棒グラフ ---
-        mean_steps_per_origin = steps_by_origin.mean(axis=0)
-        plt.figure(figsize=(10, 4))
-        plt.bar(range(agents_count), mean_steps_per_origin, color='skyblue')
-        plt.xlabel('Origin')
-        plt.ylabel('Mean Steps until extinction')
-        plt.title('Mean Steps until Extinction by Origin')
-        plt.tight_layout()
-        plt.show()
-        # --- 距離のプロット ---
-        mean_distance_by_origin = np.mean(all_distance_by_origin, axis=0)
+        print(f'Found {len(dist_files)} distance files in {outdir}')
+        # 315番目以外を使う
+        # dist_files = dist_files[:315]# + dist_files[316:373] #+ dist_files[374:428]# + dist_files[430:]
+        # dist_files = dist_files[373:374]         
+        # dist_files = [dist_files[429]         ]
+        mean_distance_by_origin = None
+        count = 0
+        for i, f  in enumerate(dist_files):
+            arr = np.load(f)
+            if np.max(arr) >1000000:
+                print(f'Skipping {i} due to large values')
+                continue
+            if mean_distance_by_origin is None:
+                mean_distance_by_origin = np.zeros_like(arr[0], dtype=np.float64)
+            mean_distance_by_origin += arr.sum(axis=0)
+            count += arr.shape[0]
+        mean_distance_by_origin /= count
+        print(f'Calculated mean_distance_by_origin with {count} samples')
+
+        # 以降はmean_distance_by_originのみを使ってプロット
         mean_distance = np.mean(mean_distance_by_origin, axis=0)
         plt.figure(figsize=(6, 5))
         plt.imshow(mean_distance, cmap='viridis', interpolation='nearest')
@@ -157,8 +153,43 @@ if __name__ == "__main__":
         plt.xticks(range(agents_count))
         plt.yticks(range(agents_count))
         plt.tight_layout()
-        plt.show()
-        def plot_line_by_origin(matrix_by_origin, view_agent, title, ylabel):
+        if args.save_fig:
+            plt.savefig(os.path.join(outdir, 'heatmap_mean_distance.png'))
+            plt.close()
+        else:
+            plt.show()
+
+        # mean_distance_by_originをoriginで和をとったものをヒートマップでプロット
+        sum_distance = np.sum(mean_distance_by_origin, axis=0)
+        plt.figure(figsize=(6, 5))
+        plt.imshow(sum_distance, cmap='viridis', interpolation='nearest')
+        plt.colorbar(label='Sum Distance (summed over origin)')
+        plt.title('Sum of Mean Distance by Origin (Heatmap)')
+        plt.xlabel('Agent')
+        plt.ylabel('Agent')
+        plt.xticks(range(agents_count))
+        plt.yticks(range(agents_count))
+        plt.tight_layout()
+        if args.save_fig:
+            plt.savefig(os.path.join(outdir, 'heatmap_sum_distance_by_origin.png'))
+            plt.close()
+        else:
+            plt.show()
+        # mean_distance_by_originの0からの距離だけ抜き出して棒グラフにする
+        distances_from_0 = sum_distance[0, :]  # 0番originから各エージェントへの距離
+        plt.figure(figsize=(8, 5))
+        plt.bar(range(agents_count), distances_from_0)
+        plt.xlabel('Agent')
+        plt.ylabel('Mean Distance from Origin 0')
+        plt.title('Mean Distance from Agent 0 to Others (by origin)')
+        plt.xticks(range(agents_count))
+        plt.tight_layout()
+        if args.save_fig:
+            plt.savefig(os.path.join(outdir, 'bar_mean_distance_from_0.png'))
+            plt.close()
+        else:
+            plt.show()
+        def plot_line_by_origin(matrix_by_origin, view_agent, title, ylabel, fname):
             plt.figure(figsize=(8, 5))
             for origin in range(matrix_by_origin.shape[0]):
                 plt.plot(range(matrix_by_origin.shape[1]), matrix_by_origin[origin, view_agent], label=f'Origin {origin}')
@@ -167,7 +198,13 @@ if __name__ == "__main__":
             plt.title(title)
             plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize='small')
             plt.tight_layout()
-            plt.show()
+            if args.save_fig:
+                plt.savefig(os.path.join(outdir, fname))
+                plt.close()
+            else:
+                plt.show()
         view_agent = 0
-        plot_line_by_origin(mean_distance_by_origin, view_agent, f'Mean Distance from Agent {view_agent} to Others (by origin)', f'Mean Distance from Agent {view_agent}')
-        plot_line_by_origin(mean_distance_by_origin, view_agent+1, f'Mean Distance from Agent {view_agent+1} to Others (by origin)', f'Mean Distance from Agent {view_agent+1}')
+        plot_line_by_origin(mean_distance_by_origin, view_agent, f'Mean Distance from Agent {view_agent} to Others (by origin)', f'Mean Distance from Agent {view_agent}', f'line_mean_distance_agent{view_agent}.png')
+        plot_line_by_origin(mean_distance_by_origin, view_agent+1, f'Mean Distance from Agent {view_agent+1} to Others (by origin)', f'Mean Distance from Agent {view_agent+1}', f'line_mean_distance_agent{view_agent+1}.png')
+
+

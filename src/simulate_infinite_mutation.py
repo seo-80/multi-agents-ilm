@@ -17,7 +17,7 @@ mu = np.ones(agents_count) * alpha_per_data / (1 + alpha_per_data)
 # mu =np.zeros(agents_count)
 # mu[agents_count//2] = alpha_per_data / (1 + alpha_per_data)
 network_args = {"bidirectional_flow_rate": fr}
-# network_args = {"outward_flow_rate": fr}
+network_args = {"outward_flow_rate": fr}
 threshold = 1e-8  # シミュレーション終了の閾値
 
 max_steps = 10000  # 最大ステップ数
