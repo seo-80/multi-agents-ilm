@@ -58,7 +58,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-
+    skip_large_values = False  # 大きな値をスキップするかどうか
     agents_count = 15
     alpha_per_data = 0.001
     fr = 0.001
@@ -124,15 +124,11 @@ if __name__ == "__main__":
         # ファイルを全てロードせず平均のみ計算
         dist_files = sorted(glob.glob(os.path.join(outdir, 'all_distance_by_origin_*.npy')))
         print(f'Found {len(dist_files)} distance files in {outdir}')
-        # 315番目以外を使う
-        # dist_files = dist_files[:315]# + dist_files[316:373] #+ dist_files[374:428]# + dist_files[430:]
-        # dist_files = dist_files[373:374]         
-        # dist_files = [dist_files[429]         ]
         mean_distance_by_origin = None
         count = 0
         for i, f  in enumerate(dist_files):
             arr = np.load(f)
-            if np.max(arr) >1000000:
+            if skip_large_values and np.max(arr) >1000000:
                 print(f'Skipping {i} due to large values')
                 continue
             if mean_distance_by_origin is None:
