@@ -136,7 +136,7 @@ fr = args.fr
 data_size = args.data_size
 alpha = args.alpha
 unique_args = {
-    "simulation_count": [ 100],
+    "simulation_count": [ 10000],
     "agents_count": [15],
     # "simulate_type":["markov_chain"],
     "simulate_type":["monte_carlo"],
@@ -159,24 +159,24 @@ unique_args = {
 },
 ],
 }
-alphas = [0.0001, 0.001, 0.01, 0.1, 1]
-fr = 0.0001
-unique_args = {
-    "simulation_count": [ 10000],
-    "agents_count": [5],
-    "simulate_type":["markov_chain"],
-    # "simulate_type":["monte_carlo"],
-    "agent": [ "BayesianInfiniteVariantsAgent"],
-    "agents_arguments": [{
-    # "alpha":1/7,  
-    "alpha":alpha,
-    "data_size":10,
-    "nonzero_alpha":"evely"
-} for alpha in alphas],
-    "network_args": [{
-    "bidirectional_flow_rate": fr,
-} for fr in np.linspace(0.01, 1, 5)]
-}
+# alphas = [0.0001, 0.001, 0.01, 0.1, 1]
+# fr = 0.0001
+# unique_args = {
+#     "simulation_count": [ 10000],
+#     "agents_count": [5],
+#     "simulate_type":["markov_chain"],
+#     # "simulate_type":["monte_carlo"],
+#     "agent": [ "BayesianInfiniteVariantsAgent"],
+#     "agents_arguments": [{
+#     # "alpha":1/7,  
+#     "alpha":alpha,
+#     "data_size":10,
+#     "nonzero_alpha":"evely"
+# } for alpha in alphas],
+#     "network_args": [{
+#     "bidirectional_flow_rate": fr,
+# } for fr in np.linspace(0.01, 1, 5)]
+# }
 
 
 setting_count = np.prod([len(unique_args[key]) for key in unique_args.keys()])

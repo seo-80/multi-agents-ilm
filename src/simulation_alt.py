@@ -34,27 +34,22 @@ def finite_mutation_simulation(agents_count, mu, W, sample_size=100, max_steps=1
         next_index_to_count = {k: np.zeros(agents_count, dtype=int) for k in index_to_count}
         new_mutations = []  # (agent, how many new mutations)
         for agent in range(agents_count):
-            probs = []
-            indices = []
-            for k in index_to_count:
-                # Probability to inherit this mutation from network (using producer's mutation rate)
-                p = 0.0
-                for j in range(agents_count):
-                    # Use mu[j] (producer's mutation rate) and the formula for inheritance
-                    inherit_prob = W[agent, j] * (index_to_count[k][j] / (sample_size + alpha[j])) * (1 - mu[j])
-                    p += inherit_prob
-                probs.append(p)
-                indices.append(k)
-            # Probability for new mutation: sum_j W_ij * mu[j]
-            p_new = 0.0
-            for j in range(agents_count):
-                p_new += W[agent, j] * mu[j]
-            probs.append(p_new)
-            indices.append(-1)  # -1 means new mutation
-            # Normalize
-            probs = np.array(probs)
+            # --- ベクトル化開始 ---
+            mutation_indices = list(index_to_count.keys())
+            mutation_counts = np.stack([index_to_count[k] for k in mutation_indices])  # shape: (mutation数, agents_count)
+            # (mutation数, agents_count) / (agents_count,) → (mutation数, agents_count)
+            normed_counts = mutation_counts / (sample_size + alpha)  # broadcasting
+            # (agents_count,) * (mutation数, agents_count) → (mutation数, agents_count)
+            weighted = W[agent, :, None] * normed_counts.T  # shape: (agents_count, mutation数)
+            # 各mutationについて sum_j W[agent, j] * (count[j] / (sample_size + alpha[j]))
+            probs = weighted.sum(axis=0)  # shape: (mutation数,)
+            # 新規ミューテーション確率
+            p_new = np.dot(W[agent], mu)
+            probs = np.append(probs, p_new)
+            indices = mutation_indices + [-1]
+            # 正規化
             probs = probs / probs.sum()
-            # Multinomial draw
+            # サンプリング
             counts = np.random.multinomial(sample_size, probs)
             for idx, k in enumerate(indices):
                 if k == -1:
@@ -74,6 +69,12 @@ def finite_mutation_simulation(agents_count, mu, W, sample_size=100, max_steps=1
         next_index_to_count = {k: v for k, v in next_index_to_count.items() if np.any(v > 0)}
         index_to_mutation_info = {k: v for k, v in index_to_mutation_info.items() if k in next_index_to_count}
         index_to_count = next_index_to_count
+        # # より見やすい出力
+        # print(f"Step {t+1}/{max_steps}:")
+        # print(f"  Mutations (index: (timestep, agent, nth_new)): {index_to_mutation_info}")
+        # print(f"  Counts (index: [counts per agent]):")
+        # for idx, counts in index_to_count.items():
+        #     print(f"    {idx}: {counts.tolist()}")
         if len(index_to_count) == 0:
             break
     return history_mutation_info, history_count
