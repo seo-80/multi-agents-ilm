@@ -126,7 +126,41 @@ network_args = [{
     "outward_flow_rate": fr,
 } for fr in np.linspace(0.01, 1, 5)]
 
+alpha_per_data=0.001
+fr = 0.01
+# data_size = 100
+data_size = 1
+alpha = data_size*alpha_per_data
 
+fr = args.fr
+data_size = args.data_size
+alpha = args.alpha
+unique_args = {
+    "simulation_count": [ 10000],
+    "agents_count": [5],
+    "simulate_type":["markov_chain"],
+    # "simulate_type":["monte_carlo"],
+    "agent": [ "BayesianInfiniteVariantsAgent"],
+    "agents_arguments": [{
+    # "alpha":1/7,  
+    "alpha":alpha,
+    "data_size":data_size,
+    "nonzero_alpha":"evely"
+},
+# {
+#     # "alpha":1/7,
+#     "alpha":alpha,
+#     "data_size":data_size,
+#     "nonzero_alpha":"center"
+# }
+],
+    "network_args": [{
+    "bidirectional_flow_rate": fr,
+}, {
+    "outward_flow_rate": fr,
+},
+],
+}
 alpha_per_data=0.001
 fr = 0.01
 data_size = 100

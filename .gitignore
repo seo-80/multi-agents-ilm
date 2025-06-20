@@ -69,6 +69,7 @@ Pipfile.lock
 
 # Data and output files
 nohup.out
+data/
 *.npy
 *.csv
 *.bin
