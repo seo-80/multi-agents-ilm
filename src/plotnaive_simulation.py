@@ -8,6 +8,7 @@ from tqdm import tqdm
 from sklearn.metrics import classification_report # 評価のためにこれは残す
 import pandas as pd
 import statsmodels.api as sm
+import matplotlib.colors as colors
 
 
 parser = argparse.ArgumentParser()
@@ -316,8 +317,7 @@ for na, ft in combinations:
     # --- ヒストグラム: agent 0-7, 0-10 の距離分布 ---
 
     agent_pairs = [(0, 7), (0, 10)]
-    plt.figure(figsize=(5, 5))
-    colors = ['blue', 'red']  # 各エージェントペアの色
+    agent_pair_colors = ['blue', 'red']  # 各エージェントペアの色
 
     # データを収集
     distances_0_7 = distances[:, 0, 7]
@@ -371,8 +371,8 @@ for na, ft in combinations:
         # binsの中心をずらす
         bin_edges = np.linspace(np.min(dists), np.max(dists), 202)
         shift = -0.5 if i == 0 else 0.5 
-        plt.hist(dists + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=colors[i], density=True)
-        plt.axvline(mean_dist + shift, color=colors[i], linestyle='--', 
+        plt.hist(dists + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=agent_pair_colors[i], density=True)
+        plt.axvline(mean_dist + shift, color=agent_pair_colors[i], linestyle='--', 
                     label=f'Mean {agent1}-{agent2}: {mean_dist:.2f} (shifted)')
     # plt.xlabel('Distance')
     # plt.ylabel('Frequency')
@@ -390,8 +390,8 @@ for na, ft in combinations:
         mean_dist = np.mean(dists)
         bin_edges = np.linspace(np.min(dists), np.max(dists), 202)
         shift = -0.5 if i == 0 else 0.5
-        plt.hist(dists + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=colors[i], density=True)
-        plt.axvline(mean_dist + shift, color=colors[i], linestyle='--', 
+        plt.hist(dists + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=agent_pair_colors[i], density=True)
+        plt.axvline(mean_dist + shift, color=agent_pair_colors[i], linestyle='--', 
                     label=f'Mean {agent1}-{agent2}: {mean_dist:.2f} (shifted)')
     # plt.xlabel('Distance')
     # plt.ylabel('Frequency (log scale)')
@@ -401,7 +401,189 @@ for na, ft in combinations:
     plt.grid(True, alpha=0.3, which='both')
     plt.savefig(os.path.join(save_dir, 'agent_pair_distances_histogram_log.png'),dpi=300)
     plt.show()
+    # --- ヒストグラム: agent 0-7 と agent 0-10 の距離の「差」の分布 (スタイル調整版) ---
+    plt.figure(figsize=(6, 5))
 
+    # 距離の差を計算
+    diff_distances = distances_0_7 - distances_0_10
+
+    # ビン(階級)の数を他のプロットの2倍に設定
+    # np.linspaceで402個の点を生成すると、階級(ビン)は401個になる
+    bin_edges = np.linspace(np.min(diff_distances), np.max(diff_distances), 402)
+    mean_diff = np.mean(diff_distances)
+
+    # ヒストグラムを描画
+    plt.axvline(mean_diff, color='blue', linestyle='--', linewidth=0.5, label=f'Mean Difference: {mean_diff:.2f}')
+
+    # 差が0の基準線を引く (大小関係の境界として重要)
+    # plt.axvline(0, color='red', linestyle='-', linewidth=0.5, label='Zero')
+    plt.hist(diff_distances, bins=bin_edges, alpha=0.75, label='d(0, 7) - d(0, 10)', color='green', density=True)
+
+    # 差の平均値の線を引く
+
+    # グラフの体裁を整える
+    # plt.title(f'Histogram of Distance Difference (d(0,7) - d(0,10))\n{ft} flow, {na}')
+    plt.xlabel('Distance Difference (d(0,7) - d(0,10))')
+    plt.ylabel('Density')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+
+    # 画像を保存して表示
+    plt.savefig(os.path.join(save_dir, 'distance_difference_histogram.png'), dpi=300)
+    plt.show()
+    # --- 散布図: d(0,7) vs d(0,10) ---
+    plt.figure(figsize=(6, 6))
+
+    # 点が重なるため、alphaで透明度を指定
+    plt.scatter(distances_0_7, distances_0_10, alpha=0.2, s=15, edgecolors='none')
+
+    # y=x の基準線を追加（2つの距離が等しい場所を示す）
+    # プロット範囲の最小値と最大値を取得して線を引く
+    max_val = max(np.max(distances_0_7), np.max(distances_0_10))
+    min_val = min(np.min(distances_0_7), np.min(distances_0_10))
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='d(0,7) = d(0,10)')
+
+    # グラフの体裁
+    plt.xlabel('Distance d(0, 7)')
+    plt.ylabel('Distance d(0, 10)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.axis('equal') # 縦横のスケールを合わせる
+    # plt.title(f'Scatter Plot of d(0,7) vs d(0,10)\n{ft} flow, {na}')
+    plt.savefig(os.path.join(save_dir, 'distance_scatter_plot.png'), dpi=300)
+    plt.show()
+
+    # --- バブルチャート (同一座標の点を集計): d(0,7) vs d(0,10) ---
+    # ご指摘の通り、データは離散値のため、全く同じ座標を持つ点の数を正確に集計し、バブルサイズに反映します。
+    plt.figure(figsize=(7, 6))
+
+    # pandas DataFrameを作成して、同一座標のペアを効率的に集計
+    df_scatter = pd.DataFrame({
+        'd_0_7': distances_0_7,
+        'd_0_10': distances_0_10
+    })
+
+    # 同一の(d_0_7, d_0_10)ペアの出現回数をカウント
+    bubble_data = df_scatter.groupby(['d_0_7', 'd_0_10']).size().reset_index(name='count')
+
+    # バブルのサイズを頻度(count)に比例させる (見た目を調整するための係数)
+    scale_factor = 5
+    bubble_sizes = bubble_data['count'] * scale_factor
+
+    # バブルチャートを描画
+    plt.scatter(
+        bubble_data['d_0_7'],
+        bubble_data['d_0_10'],
+        s=bubble_sizes,
+        alpha=0.1,
+        edgecolors="w", # バブルの境界線を白にすると見やすい
+        linewidth=0.5
+    )
+
+    # y=x の基準線を追加 (zorderでプロットの背面になるように調整)
+    max_val = max(np.max(distances_0_7), np.max(distances_0_10))
+    min_val = min(np.min(distances_0_7), np.min(distances_0_10))
+   
+
+    # グラフの体裁
+    plt.xlabel('Distance d(0, 7)')
+    plt.ylabel('Distance d(0, 10)')
+    plt.grid(True, alpha=0.3, zorder=-1) # gridも背面に
+    plt.axis('equal')
+    # plt.title(f'Bubble Chart of d(0,7) vs d(0,10) Point Counts\n{ft} flow, {na}')
+    plt.savefig(os.path.join(save_dir, 'distance_bubble_exact_counts_plot.png'), dpi=300)
+
+    # --- バブルチャート (同一座標の点を集計): d(0,7) vs d(0,10) ---
+    # ご指摘の通り、データは離散値のため、全く同じ座標を持つ点の数を正確に集計し、バブルサイズに反映します。
+    plt.figure(figsize=(7, 6))
+
+    # pandas DataFrameを作成して、同一座標のペアを効率的に集計
+    df_scatter = pd.DataFrame({
+        'd_0_7': distances_0_7,
+        'd_0_10': distances_0_10
+    })
+
+    # 同一の(d_0_7, d_0_10)ペアの出現回数をカウント
+    bubble_data = df_scatter.groupby(['d_0_7', 'd_0_10']).size().reset_index(name='count')
+
+    # バブルのサイズを頻度(count)に比例させる (見た目を調整するための係数)
+    scale_factor = 5
+    bubble_sizes = np.log(1+bubble_data['count'] * scale_factor)
+
+    # バブルチャートを描画
+    plt.scatter(
+        bubble_data['d_0_7'],
+        bubble_data['d_0_10'],
+        s=bubble_sizes,
+        alpha=0.8,
+        edgecolors="w", # バブルの境界線を白にすると見やすい
+        linewidth=0.5
+    )
+
+    # y=x の基準線を追加 (zorderでプロットの背面になるように調整)
+    max_val = max(np.max(distances_0_7), np.max(distances_0_10))
+    min_val = min(np.min(distances_0_7), np.min(distances_0_10))
+   
+
+    # グラフの体裁
+    plt.xlabel('Distance d(0, 7)')
+    plt.ylabel('Distance d(0, 10)')
+    plt.grid(True, alpha=0.3, zorder=-1) # gridも背面に
+    plt.axis('equal')
+    # plt.title(f'Bubble Chart of d(0,7) vs d(0,10) Point Counts\n{ft} flow, {na}')
+    plt.savefig(os.path.join(save_dir, 'distance_log_bubble_exact_counts_plot.png'), dpi=300)
+    plt.show()
+
+    # --- 2Dヒストグラム (Heatmap) ---
+    # imshow を使った四角いセルのヒートマップを作成します。
+    # まず、2次元のヒストグラムデータを計算 (binsで解像度を調整)
+    bins = 50
+    counts, xedges, yedges = np.histogram2d(distances_0_7, distances_0_10, bins=bins)
+
+    # 軸の範囲を定義
+    extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
+
+    # --- バージョン1: 通常のリニアスケール ---
+    plt.figure(figsize=(7, 6))
+    # `imshow`でヒートマップを描画。counts.Tで転置し、origin='lower'で原点を左下に設定。
+    im = plt.imshow(counts.T, origin='lower', extent=extent, cmap='viridis', aspect='equal')
+
+    # カラーバーと基準線
+    plt.colorbar(im, label='Counts')
+    
+
+    # グラフの体裁
+    plt.xlabel('Distance d(0, 7)')
+    plt.ylabel('Distance d(0, 10)')
+    # plt.title('2D Histogram (Linear Scale)')
+    plt.savefig(os.path.join(save_dir, 'distance_heatmap_linear.png'), dpi=300)
+    plt.show()
+
+
+    # --- バージョン2: 対数カラースケール ---
+    # `matplotlib.colors`をインポート
+    for cmap in ['Blues', 'Reds', 'Greens']:
+        plt.figure(figsize=(7, 6))
+        
+        # 度数が0のセルはエラーになるため、マスクする
+        counts_masked = np.ma.masked_where(counts == 0, counts)
+
+        # LogNorm() で0を無視し、1以上の値を対数スケールで表現
+        im_log = plt.imshow(
+            counts_masked.T, origin='lower', extent=extent, cmap=cmap, aspect='equal',
+            norm=colors.LogNorm()
+        )
+
+        # カラーバーと基準線
+        plt.colorbar(im_log, label='Counts (log scale)')
+        
+
+        # グラフの体裁
+        plt.xlabel('Distance d(0, 7)')
+        plt.ylabel('Distance d(0, 10)')
+        # plt.title('2D Histogram (Log Scale)')
+        plt.savefig(os.path.join(save_dir, f'distance_heatmap_log_{cmap}.png'), dpi=300)
+        plt.show()
     # --- ヒートマップ ---
     plt.figure(figsize=(5, 5))
     # plt.title(f"Mean Agent Distance (Heatmap)\n{ft} flow, {na}")
@@ -506,8 +688,8 @@ for na, ft in combinations:
             mean_sim = np.mean(sims)
             bin_edges = np.linspace(np.min(sims), np.max(sims), 202)
             shift = -0.005 if i == 0 else 0.005  # 類似度は距離より小さい範囲なので小さいshift
-            plt.hist(sims + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=colors[i], density=True)
-            plt.axvline(mean_sim + shift, color=colors[i], linestyle='--', 
+            plt.hist(sims + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=agent_pair_colors[i], density=True)
+            plt.axvline(mean_sim + shift, color=agent_pair_colors[i], linestyle='--', 
                         label=f'Mean {agent1}-{agent2}: {mean_sim:.3f} (shifted)')
         plt.grid(True, alpha=0.3)
         plt.savefig(os.path.join(save_dir, 'agent_pair_dot_similarities_histogram.png'),dpi=300)
@@ -586,8 +768,8 @@ for na, ft in combinations:
             mean_sim = np.mean(sims)
             bin_edges = np.linspace(np.min(sims), np.max(sims), 202)
             shift = -0.001 if i == 0 else 0.001  # コサイン類似度は0-1範囲なので更に小さいshift
-            plt.hist(sims + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=colors[i], density=True)
-            plt.axvline(mean_sim + shift, color=colors[i], linestyle='--', 
+            plt.hist(sims + shift, bins=bin_edges + shift, label=f'Agent {agent1}-{agent2}', color=agent_pair_colors[i], density=True)
+            plt.axvline(mean_sim + shift, color=agent_pair_colors[i], linestyle='--', 
                         label=f'Mean {agent1}-{agent2}: {mean_sim:.3f} (shifted)')
         plt.grid(True, alpha=0.3)
         plt.savefig(os.path.join(save_dir, 'agent_pair_cosine_similarities_histogram.png'),dpi=300)
