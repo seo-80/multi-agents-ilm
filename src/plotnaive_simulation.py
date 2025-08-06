@@ -326,24 +326,6 @@ def plot_distance_analysis(distances, save_dir, N_i):
     # 距離行列の平均を計算
     mean_distance_matrix = distances.mean(axis=0)
     # 各行ごとに値が大きいほど順位が大きくなるように順位を計算（1始まり）
-    rank_matrix = mean_distance_matrix.argsort(axis=1).argsort(axis=1) + 1
-    for cmap in ['Blues', 'Reds', 'Greens', 'bwr', 'Blues_Reds']:
-        filename = f'distance_rank_matrix_heatmap_{cmap}.png'
-        plt.figure(figsize=(5, 5))
-        if cmap == 'Blues_Reds':
-            custom_cmap = colors.LinearSegmentedColormap.from_list('Blues_Reds', ['blue','red'])
-            im = plt.imshow(rank_matrix, cmap=custom_cmap, aspect='equal')
-        else:
-            im = plt.imshow(rank_matrix, cmap=cmap, aspect='equal')
-        plt.colorbar(im)
-        plt.xticks([])
-        plt.yticks([])
-        plt.gca()
-        # plt.title('Rank Matrix: iから見たjの距離順位（大きいほど順位大）')
-        # plt.xlabel('Agent j')
-        # plt.ylabel('Agent i')
-        plt.savefig(os.path.join(save_dir, filename), dpi=300)
-        plt.close()
 
 
 def plot_bubble_charts(distances_0_7, distances_0_10, save_dir):
@@ -453,6 +435,47 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i):
     plt.yticks([])
     plt.savefig(os.path.join(save_dir, f"mean_distance_from_agent{agent_id}.png"), dpi=300)
     plt.close()
+
+    # グラフの線を描画
+    plt.figure(figsize=(5, 5))
+    plt.plot(np.arange(mean_distance.shape[0]), mean_distance[agent_id])
+
+    # 0番目のデータ点を 'x' マーカーでプロット
+    plt.plot(0, mean_distance[agent_id][0], marker='x', color='C0', markersize=8, markeredgewidth=1.5)
+    # 1番目以降のデータ点を 'o' マーカーでプロット
+    plt.plot(np.arange(mean_distance.shape[0])[1:], mean_distance[agent_id][1:], marker='o', color='C0', linestyle='None')
+
+    # 7番目のデータ点（インデックスは6）の座標を取得
+    x_point_7 = np.arange(mean_distance.shape[0])[7]
+    y_point_7 = mean_distance[agent_id][7]
+
+    # 7番目の点から軸に向かって垂直・水平線を引く
+    plt.vlines(x=x_point_7, ymin=0, ymax=1, colors='gray', linestyles='--')
+    plt.hlines(y=y_point_7, xmin=0, xmax=14, colors='gray', linestyles='--')
+    plt.xticks([])
+    plt.yticks([])
+    plt.savefig(os.path.join(save_dir, f"mean_distance_from_agent{agent_id}_with_line.png"), dpi=300)
+    plt.close()
+
+    rank_matrix = mean_distance.argsort(axis=1).argsort(axis=1) + 1
+    for cmap in ['Blues', 'Reds', 'Greens', 'bwr', 'Blues_Reds', 'Greys']:
+        filename = f'distance_rank_matrix_heatmap_{cmap}.png'
+        plt.figure(figsize=(5, 5))
+        if cmap == 'Blues_Reds':
+            custom_cmap = colors.LinearSegmentedColormap.from_list('Blues_Reds', ['blue','red'])
+            im = plt.imshow(rank_matrix, cmap=custom_cmap, aspect='equal')
+        else:
+            im = plt.imshow(rank_matrix, cmap=cmap, aspect='equal')
+        plt.colorbar(im)
+        plt.xticks([])
+        plt.yticks([])
+        plt.gca()
+        # plt.title('Rank Matrix: iから見たjの距離順位（大きいほど順位大）')
+        # plt.xlabel('Agent j')
+        # plt.ylabel('Agent i')
+        plt.savefig(os.path.join(save_dir, filename), dpi=300)
+        plt.close()
+
 
 
 def plot_age_analysis(save_dir):
@@ -759,7 +782,6 @@ def run_single_pair_regression(df_pair):
 
 def plot_pvalue_heatmaps(df_results, save_dir):
     """
-    【新規追加】
     ロジスティック回帰の各係数のp値についてヒートマップを作成する。
     p値は「係数が0である」という帰無仮説が正しい場合に、観測データ以上の結果が得られる確率。
     """
@@ -891,9 +913,6 @@ def analyze_and_plot_by_pair(args):
     # 新しく定義した関数を呼び出す
     plot_pvalue_heatmaps(df_results, args.save_dir)
 
-# =============================================================================
-# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ 変更・追加箇所 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
-# =============================================================================
 
 
 def main():
