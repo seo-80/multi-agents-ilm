@@ -734,20 +734,62 @@ def perform_logistic_regression(data_generator, analysis_name):
         print(f"Could not fit statsmodels Logit model. Error: {e}")
 
 
+# =============================================================================
+# ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼ 変更・追加箇所 ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+# =============================================================================
+
 def run_single_pair_regression(df_pair):
-    """特定の(i, j)ペアのデータフレームを受け取り、回帰分析を実行して係数を返す"""
+    """特定の(i, j)ペアのデータフレームを受け取り、回帰分析を実行して係数とp値を返す"""
     # データが少なすぎる、またはyの値が全て0か1の場合は分析できない
     if len(df_pair) < 4 or df_pair['y'].nunique() < 2:
-        return [np.nan] * 4 # 4つの係数すべてをNaNで返す
+        # 係数とp値の両方をNaNで返すように変更
+        return [np.nan] * 4, [np.nan] * 4 
 
     try:
         X = df_pair[['x1', 'x2', 'x1_x2']]
         y = df_pair['y']
         X_sm = sm.add_constant(X, prepend=True)
         model = sm.Logit(y, X_sm).fit(disp=0)
-        return model.params.values
-    except Exception as e:
-        return [np.nan] * 4
+        # 係数 (model.params) と p値 (model.pvalues) の両方を返すように変更
+        return model.params.values, model.pvalues.values
+    except Exception:
+        # エラー時も同様に係数とp値の両方をNaNで返すように変更
+        return [np.nan] * 4, [np.nan] * 4
+
+
+def plot_pvalue_heatmaps(df_results, save_dir):
+    """
+    【新規追加】
+    ロジスティック回帰の各係数のp値についてヒートマップを作成する。
+    p値は「係数が0である」という帰無仮説が正しい場合に、観測データ以上の結果が得られる確率。
+    """
+    print("Creating p-value heatmaps...")
+    coeff_names = ['Intercept', 'x1_center', 'x2_outward', 'x1_x2_interaction']
+    
+    for coeff_name in coeff_names:
+        p_name = f'p_{coeff_name}'
+        # p値の列が存在するかチェック
+        if p_name not in df_results.columns:
+            print(f"P-value column '{p_name}' not found in results. Skipping heatmap.")
+            continue
+            
+        heatmap_data = df_results.pivot(index='i', columns='j', values=p_name)
+        print(save_dir)
+        print(heatmap_data)
+        
+        plt.figure(figsize=(5, 5))
+        # p値が小さいほど色が濃くなるように、cmapに`_r`をつける (例: viridis_r)
+        # vmax=0.1とすることで、有意水準(e.g., 0.05)付近の変化を強調する
+        im = plt.imshow(heatmap_data, aspect="equal", cmap='viridis_r', 
+                       vmin=0, vmax=0.1) 
+        plt.colorbar(im, label=f'P-value for "{coeff_name}"')
+        plt.xticks([])
+        plt.yticks([])
+
+        save_path = os.path.join(save_dir, f'heatmap_pvalue_{coeff_name}.png')
+        plt.savefig(save_path, dpi=300)
+        plt.close()
+        print(f"Saved p-value heatmap to {save_path}")
 
 
 def analyze_and_plot_by_pair(args):
@@ -756,10 +798,8 @@ def analyze_and_plot_by_pair(args):
     結果は保存され、既に結果があればそれをロードする。
     """
 
-    # 結果ファイルのパスを設定
     results_file = os.path.join(args.save_dir, 'pair_analysis_results.pkl')
     
-    # 既に結果ファイルが存在する場合はロード
     if os.path.exists(results_file):
         print(f"Loading existing results from {results_file}")
         with open(results_file, 'rb') as f:
@@ -778,9 +818,8 @@ def analyze_and_plot_by_pair(args):
                     continue
                 if (i - hub_agent) * (j - hub_agent) < 0:
                     valid_pairs.append((i, j))
-        for idx, (i, j) in enumerate(valid_pairs):
-            if (idx + 1) % 100 == 0:
-                print(f"Processing pair {idx + 1}/{len(valid_pairs)}: ({i}, {j})")
+
+        for i, j in tqdm(valid_pairs, desc="Analyzing pairs"):
             pair_data = []
             for na, ft in combinations:
                 x1 = 1 if na == 'center' else 0
@@ -794,50 +833,67 @@ def analyze_and_plot_by_pair(args):
                     y_val = int(val_i_hub > val_i_j)
                     pair_data.append({'y': y_val, 'x1': x1, 'x2': x2, 'x1_x2': x1 * x2})
             df_pair = pd.DataFrame(pair_data)
-            coeffs = run_single_pair_regression(df_pair)
+
+            # run_single_pair_regressionから係数とp値の両方を受け取るように変更
+            coeffs, pvals = run_single_pair_regression(df_pair)
+            
+            # 結果辞書にp値も追加
             results.append({
                 'i': i, 'j': j,
                 'Intercept': coeffs[0],
                 'x1_center': coeffs[1],
                 'x2_outward': coeffs[2],
-                'x1_x2_interaction': coeffs[3]
+                'x1_x2_interaction': coeffs[3],
+                'p_Intercept': pvals[0],
+                'p_x1_center': pvals[1],
+                'p_x2_outward': pvals[2],
+                'p_x1_x2_interaction': pvals[3]
             })
         
-        # 結果をDataFrameに変換
         df_results = pd.DataFrame(results)
         
-        # 結果を保存
         os.makedirs(args.save_dir, exist_ok=True)
         print(f"Saving results to {results_file}")
         with open(results_file, 'wb') as f:
             pickle.dump(df_results, f)
         print("Results saved successfully.")
     
-    print("Creating heatmaps...")
+    # --- 係数のヒートマップ作成 ---
+    print("Creating coefficient heatmaps...")
     coeff_names = ['Intercept', 'x1_center', 'x2_outward', 'x1_x2_interaction']
     os.makedirs(args.save_dir, exist_ok=True)
     for coeff_name in coeff_names:
-        # データの準備
         heatmap_data = df_results.pivot(index='i', columns='j', values=coeff_name)
 
-        # 指定されたフォーマットでプロット
         plt.figure(figsize=(5, 5))
-        # データの範囲を対称にして、白が0になるようにする
-        print(heatmap_data)
-        print(heatmap_data.values)
-        print(np.nanmax(np.abs(heatmap_data.values)))
-        max_abs_val = np.nanmax(np.abs(heatmap_data.values))
+        # heatmap_data.valuesが全てnanの場合、nanmaxはnanを返すため、チェックを追加
+        if not np.all(np.isnan(heatmap_data.values)):
+            max_abs_val = np.nanmax(np.abs(heatmap_data.values))
+        else:
+            max_abs_val = 1.0 # 全てnanならデフォルト値を使用
+
+        # max_abs_valが0やnanの場合のフォールバック処理
+        if np.isnan(max_abs_val) or max_abs_val == 0:
+            max_abs_val = 1.0
+
         im = plt.imshow(heatmap_data, aspect="equal", cmap='coolwarm', 
                        vmin=-max_abs_val, vmax=max_abs_val)
-        plt.colorbar(im, label=f'"{coeff_name}" Coefficient')
+        plt.colorbar(im, label=f'Coefficient for "{coeff_name}"')
         plt.xticks([])
         plt.yticks([])
 
-        # 画像の保存
         save_path = os.path.join(args.save_dir, f'heatmap_{coeff_name}.png')
         plt.savefig(save_path, dpi=300)
         plt.close()
-        print(f"Saved heatmap to {save_path}")
+        print(f"Saved coefficient heatmap to {save_path}")
+
+    # --- p値のヒートマップ作成（新規追加） ---
+    # 新しく定義した関数を呼び出す
+    plot_pvalue_heatmaps(df_results, args.save_dir)
+
+# =============================================================================
+# ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ 変更・追加箇所 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+# =============================================================================
 
 
 def main():
@@ -846,7 +902,6 @@ def main():
     
     combinations = get_combinations(args.nonzero_alpha, args.flow_type)
     
-    # <<<<<<<<<<<<<<<<< 変更点: 新しいロジックのジェネレータを格納するリスト >>>>>>>>>>>>>>>>>
     concentric_generators = []
     hub_comparison_generators = []
     
@@ -855,13 +910,11 @@ def main():
         print(f"Processing: {na} + {ft}")
         print(f"{'='*50}")
         
-        # Get directory paths
         load_dir, save_dir = get_directory_paths(
             ft, na, args.coupling_strength, args.agents_count, args.N_i
         )
         os.makedirs(save_dir, exist_ok=True)
         
-        # Load distance files
         distance_files = sorted(glob.glob(os.path.join(load_dir, "distance_*.npy")))
         print(f"Number of distance files found: {len(distance_files)}")
         
@@ -871,113 +924,64 @@ def main():
             
         distance_files = distance_files[args.skip:]
         
-        # Create age files if requested
         if args.make_age_files:
             state_files = sorted(glob.glob(os.path.join(load_dir, "state_*.npy")))
             create_age_files(load_dir, save_dir, state_files)
         
-        # Load similarity data
         (mean_similarity_dot, mean_similarity_cosine, 
-         _, _) = load_similarity_data( # similarities_dot/cosine は平均計算後は不要なため受け取らない
+         _, _) = load_similarity_data(
             load_dir, force_recompute=args.recompute_mean_similarity
         )
         
-        # 注意: この部分もファイル数が多いとメモリを圧迫する可能性があります。
-        # もしここでメモリ不足になる場合は、この部分も逐次処理に書き換える必要があります。
-        # distances = np.stack([np.load(f) for f in distance_files], axis=0)  # この行を削除
-        
-        # mean_distanceの計算も逐次処理に変更
         mean_distance = None
         if args.plot_distance:
-            # 平均距離を逐次計算
             total_distance = None
             count = 0
             for f in distance_files:
                 snapshot_d = np.load(f)
                 if total_distance is None:
-                    total_distance = snapshot_d.copy()
+                    total_distance = snapshot_d.copy().astype(np.float64)
                 else:
                     total_distance += snapshot_d
                 count += 1
-            mean_distance = total_distance / count
+            if count > 0:
+                mean_distance = total_distance / count
         
-        # Distance analysis
-        if args.plot_distance:
-            # plot_distance_analysis関数は完全なdistances配列を必要とするため、
-            # この部分は現在の変更では動作しません。必要に応じて修正が必要です。
-            print("Warning: plot_distance_analysis requires full distances array which is not loaded in this version.")
-            # plot_distance_analysis(distances, save_dir, args.N_i)
+        if args.plot_distance and mean_distance is not None:
+            print("Warning: plot_distance_analysis requires full distances array which is not loaded in this memory-efficient version. Plotting mean distance only.")
             plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i)
         
-        # Age analysis
         if args.plot_age:
             plot_age_analysis(save_dir)
         
-        # Similarity analysis
         if args.plot_similarity:
-            # 注意: plot_similarity_analysis関数は完全なsimilarities配列を必要とするため、
-            # この部分は現在の変更では動作しません。必要に応じて修正が必要です。
-            print("Warning: plot_similarity analysis requires full similarity arrays which are not loaded in this version.")
-            # similarities_dot_0_7 = None
-            # similarities_dot_0_10 = None
-            # similarities_cosine_0_7 = None
-            # similarities_cosine_0_10 = None
-            # if similarities_dot is not None:
-            #     similarities_dot_0_7, similarities_dot_0_10 = plot_similarity_analysis(
-            #         similarities_dot, mean_similarity_dot, save_dir, 'dot'
-            #     )
-            
-            # if similarities_cosine is not None:
-            #     similarities_cosine_0_7, similarities_cosine_0_10 = plot_similarity_analysis(
-            #         similarities_cosine, mean_similarity_cosine, save_dir, 'cosine'
-            #     )
-        
-        # Concentric distribution check
+            print("Warning: plot_similarity_analysis requires full similarity arrays which are not loaded in this memory-efficient version.")
+
         if args.check_concentric:
-            # distances配列が利用できないため、この部分は現在の変更では動作しません。
-            print("Warning: check_concentric analysis requires full distances array which is not loaded in this version.")
-            # distances_0_7 = distances[:, 0, 7]
-            # distances_0_10 = distances[:, 0, 10]
-            
-            # 注意: perform_binomial_tests関数は完全なsimilarities配列を必要とするため、
-            # この部分は現在の変更では動作しません。必要に応じて修正が必要です。
-            print("Warning: perform_binomial_tests requires full similarity arrays which are not loaded in this version.")
-            # perform_binomial_tests(
-            #     distances_0_7, distances_0_10,
-            #     similarities_dot_0_7, similarities_dot_0_10,
-            #     similarities_cosine_0_7, similarities_cosine_0_10,
-            #     mean_distance, mean_similarity_dot, mean_similarity_cosine
-            # )
+            print("Warning: check_concentric and perform_binomial_tests require full data arrays which are not loaded in this memory-efficient version.")
         
-        # <<<<<<<<<<<<<<<<< 変更点: 新しいロジックのジェネレータを呼び出す >>>>>>>>>>>>>>>>>
         if args.logistic_regression:
-            # Concentric判定のジェネレータ
             concentric_gen = generate_concentric_data(distance_files, na, ft)
             concentric_generators.append(concentric_gen)
             
-            # ジェネレータには、配列ではなくファイルパスのリストを渡す
             dist_gen = generate_hub_comparison_data_from_files(
                 distance_files, na, ft, args.agents_count, hub_agent=7
             )
             hub_comparison_generators.append(dist_gen)
     
-    # <<<<<<<<<<<<<<<<< 変更点: 連結したジェネレータをstatsmodelsで分析 >>>>>>>>>>>>>>>>>
     if args.logistic_regression and hub_comparison_generators:
         print("\n" + "="*60)
         print("Performing final logistic regression on all combined data...")
         print("="*60)
 
-        # 1. Concentric Distribution の分析
         final_concentric_gen = itertools.chain.from_iterable(concentric_generators)
         perform_logistic_regression(final_concentric_gen, "Concentric Distribution")
         
-        # 2. 距離比較の分析（新しいロジック）
         final_dist_gen = itertools.chain.from_iterable(hub_comparison_generators)
         perform_logistic_regression(final_dist_gen, "Hub Comparison: d(i, 7) > d(i, j)")
 
     if hasattr(args, 'pairwise_regression') and args.pairwise_regression:
-        if not hasattr(args, 'save_dir') or args.save_dir is None:
-            # デフォルトの保存先を設定
+        if not hasattr(args, 'save_dir') or not args.save_dir:
             args.save_dir = 'data/naive_simulation/fig/pairwise_regression_heatmaps'
         os.makedirs(args.save_dir, exist_ok=True)
         analyze_and_plot_by_pair(args)
