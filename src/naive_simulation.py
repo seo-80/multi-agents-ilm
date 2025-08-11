@@ -6,36 +6,57 @@ import glob
 import csv
 import pickle
 import time
+import argparse
 
 import collections
-# --- パラメータ設定例 ---
-agents_count = 15  # M
-N_i = 100          # 各サブ集団のデータ数
-alpha_per_data = 0.001  # 新語生成バイアス
-nonzero_alpha = "center"  # "evenly" or "center"
-# nonzero_alpha = "evenly"  # "evenly" or "center"
-coupling_strength = 0.01  # m
-save_interval_min = 1000
-save_interval_max = 2000
-save_dir = "data/naive_simulation/raw"  # 保存先ディレクトリ
+# --- コマンドライン引数の設定 ---
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Naive simulation with configurable parameters')
+    parser.add_argument('--agents_count', type=int, default=15, help='Number of agents (M)')
+    parser.add_argument('--N_i', type=int, default=100, help='Number of data per sub-population')
+    parser.add_argument('--alpha_per_data', type=float, default=0.001, help='New word generation bias')
+    parser.add_argument('--nonzero_alpha', type=str, default='center', choices=['evenly', 'center'], 
+                       help='Distribution of bias: "evenly" or "center"')
+    parser.add_argument('--flow_type', type=str, default='outward', choices=['outward', 'bidirectional'], 
+                       help='Flow type: "outward" or "bidirectional"')
+    parser.add_argument('--coupling_strength', type=float, default=0.01, help='Coupling strength (m)')
+    parser.add_argument('--save_interval_min', type=int, default=1000, help='Minimum save interval')
+    parser.add_argument('--save_interval_max', type=int, default=2000, help='Maximum save interval')
+    parser.add_argument('--save_dir', type=str, default='data/naive_simulation/raw', help='Save directory')
+    parser.add_argument('--seed', type=int, default=0, help='Random seed for reproducibility')
+    parser.add_argument('--max_t', type=int, default=1000000, help='Maximum time step')
+    return parser.parse_args()
+
+# --- パラメータ設定 ---
+args = parse_arguments()
+agents_count = args.agents_count  # M
+N_i = args.N_i          # 各サブ集団のデータ数
+alpha_per_data = args.alpha_per_data  # 新語生成バイアス
+nonzero_alpha = args.nonzero_alpha  # "evenly" or "center"
+coupling_strength = args.coupling_strength  # m
+save_interval_min = args.save_interval_min
+save_interval_max = args.save_interval_max
+save_dir = args.save_dir  # 保存先ディレクトリ
 os.makedirs(save_dir, exist_ok=True)
 alpha = alpha_per_data * N_i  # 各エージェントのバイアス合計
 
 
 # --- ネットワーク生成 ---
-network_args = {"bidirectional_flow_rate": coupling_strength}
-# network_args = {"outward_flow_rate": coupling_strength}
-network_matrix = networks.network(agents_count, args=network_args)
-alphas = np.zeros(agents_count, dtype=float)
-if nonzero_alpha == "evenly":
-    # 各エージェントに均等にバイアスを設定
-    alphas = np.ones(agents_count) * alpha
-elif nonzero_alpha == "center":
-    # 中央のエージェントだけにバイアスを設定
-    alphas = np.zeros(agents_count)
-    alphas[agents_count // 2] = alpha
+if args.flow_type == "bidirectional":
+    network_args = {"bidirectional_flow_rate": coupling_strength}
+elif args.flow_type == "outward":
+    network_args = {"outward_flow_rate": coupling_strength}
 else:
-    raise ValueError("nonzero_alpha must be 'evenly' or 'center'")
+    raise ValueError("flow_type must be 'bidirectional' or 'outward'")
+network_matrix = networks.network(agents_count, args=network_args)
+if args.nonzero_alpha == "center":
+    alphas = np.zeros(agents_count, dtype=float)
+    alphas[agents_count // 2] = alpha
+elif args.nonzero_alpha == "evenly":
+    alphas = np.ones(agents_count) * alpha
+else:
+    raise ValueError("nonzero_alpha must be 'center' or 'evenly'")
+
 
 subdir = ""
 # 保存ディレクトリ名にbidirectional/outwardとnonzero_alphaの値を追加
@@ -46,8 +67,8 @@ elif "outward_flow_rate" in network_args:
 else:
     raise ValueError("network_args must contain either 'bidirectional_flow_rate' or 'outward_flow_rate'")
 
-subdir += f"nonzero_alpha_{nonzero_alpha}"
-subdir += f"_agents_{agents_count}_N_i_{N_i}"
+subdir += f"nonzero_alpha_{nonzero_alpha}_fr_{coupling_strength}"
+subdir += f"_agents_{agents_count}_N_i_{N_i}_alpha_{alpha_per_data}"
 
 save_dir = os.path.join(
     save_dir,
@@ -91,7 +112,7 @@ if state_files:
     save_idx = last_idx + 1
 else:
     # 新規開始
-    np.random.seed(0)  # 再現性のためのシード設定
+    np.random.seed(args.seed)  # 再現性のためのシード設定
     state = np.zeros((agents_count, N_i, 3), dtype=int)
     for i in range(agents_count):
         for j in range(N_i):
@@ -112,9 +133,66 @@ def calc_agent_distance(state):
             dist_ij = sum(abs(counters[i][k] - counters[j][k]) for k in all_keys)
             dist[i, j] = dist[j, i] = dist_ij
     return dist
+def calculate_genetic_similarity(state):
+    """
+    state配列から、対立遺伝子（ミーム）頻度を用いて
+    エージェント間の遺伝学的類似度を計算します。
+
+    Args:
+        state (np.ndarray): (agents_count, N_i, 3) の形状を持つstate配列。
+
+    Returns:
+        tuple: (内積行列, コサイン類似度行列) のタプル。
+    """
+    agents_count, N_i, _ = state.shape
+
+    # 1. 各エージェントのミーム頻度を計算
+    # freq_list[i] はエージェントiの {ミーム: 頻度} という辞書
+    freq_list = []
+    for i in range(agents_count):
+        # state[i]内のユニークなミーム（タプル）とその出現回数を数える
+        counts = collections.Counter(tuple(row) for row in state[i])
+        # 回数をデータ総数 N_i で割り、頻度を計算
+        freq_dict = {meme: count / N_i for meme, count in counts.items()}
+        freq_list.append(freq_dict)
+
+    # 2. 類似度行列を初期化
+    dot_product_matrix = np.zeros((agents_count, agents_count))
+    cosine_similarity_matrix = np.zeros((agents_count, agents_count))
+
+    # 3. 全てのエージェントのペア (i, j) について類似度を計算
+    for i in range(agents_count):
+        for j in range(i, agents_count):
+            freq_i = freq_list[i]
+            freq_j = freq_list[j]
+
+            # 比較に必要なすべてのユニークなミームの集合を取得
+            all_memes = set(freq_i.keys()) | set(freq_j.keys())
+
+            # --- 内積の計算 ---
+            # dot_product = Σ (p_ik * p_jk)
+            dot_product = sum(freq_i.get(meme, 0) * freq_j.get(meme, 0) for meme in all_memes)
+            dot_product_matrix[i, j] = dot_product_matrix[j, i] = dot_product
+
+            # --- コサイン類似度の計算 ---
+            # 分母のノルムを計算: sqrt(Σ p_ik^2) * sqrt(Σ p_jk^2)
+            norm_i = np.sqrt(sum(p**2 for p in freq_i.values()))
+            norm_j = np.sqrt(sum(p**2 for p in freq_j.values()))
+
+            if norm_i > 0 and norm_j > 0:
+                cosine_sim = dot_product / (norm_i * norm_j)
+            else:
+                cosine_sim = 0.0 # ゼロ除算を避ける
+
+            cosine_similarity_matrix[i, j] = cosine_similarity_matrix[j, i] = cosine_sim
+
+    return dot_product_matrix, cosine_similarity_matrix
 
 # --- メインループ ---
 while True:
+    if t >= args.max_t:
+        break
+        
     # --- save_intervalをサンプル ---
     save_interval = np.random.randint(save_interval_min, save_interval_max + 1)
     next_save = t + save_interval
