@@ -34,6 +34,7 @@ def parse_arguments():
                        help='Number of data per subpopulation (default: 100)')
     parser.add_argument('--coupling_strength', '-c', type=float, default=0.01, 
                        help='Coupling strength (default: 0.01)')
+    parser.add_argument('--alpha_per_data', type=float, default=0.001, help='New word generation bias')
     parser.add_argument('--recompute_mean_similarity', action='store_true',
                        help='If set, recompute mean similarity even if saved file exists')
     parser.add_argument('--clear_figure_dir', action='store_true',
@@ -65,7 +66,7 @@ def get_combinations(nonzero_alpha, flow_type):
     return [(na, ft) for na in nonzero_alpha_options for ft in flow_type_options]
 
 
-def get_directory_paths(flow_type, nonzero_alpha, coupling_strength, agents_count, N_i):
+def get_directory_paths(flow_type, nonzero_alpha, coupling_strength, agents_count, N_i, alpha):
     """Get load and save directory paths."""
     if flow_type == 'bidirectional':
         flow_str = 'bidirectional_flow-'
@@ -74,7 +75,7 @@ def get_directory_paths(flow_type, nonzero_alpha, coupling_strength, agents_coun
     else:
         raise ValueError(f"Unknown flow_type: {flow_type}")
     
-    subdir = f"{flow_str}nonzero_alpha_{nonzero_alpha}_fr_{coupling_strength}_agents_{agents_count}_N_i_{N_i}"
+    subdir = f"{flow_str}nonzero_alpha_{nonzero_alpha}_fr_{coupling_strength}_agents_{agents_count}_N_i_{N_i}_alpha_{alpha}"
     load_dir = f"data/naive_simulation/raw/{subdir}"
     save_dir = f"data/naive_simulation/fig/{subdir}"
     
@@ -170,61 +171,43 @@ def create_age_files(load_dir, save_dir, state_files):
 
 
 
-def _compute_mean_iteratively(file_list, save_path):
-    """
-    ファイルを1つずつ読み込み、メモリ効率良く平均を計算して保存するヘルパー関数。
-    """
-    if not file_list:
-        return None
-
-    print(f"Found {len(file_list)} files. Averaging iteratively...")
-
-    # 1. 最初のファイルを読み込み、合計用配列を初期化
-    sum_array = np.load(file_list[0]).astype(np.float64) # 高精度な計算のためfloat64に変換
-    
-    # 2. 2つ目以降のファイルをループで処理し、合計に加算
-    for f in file_list[1:]:
-        sum_array += np.load(f)
-        
-    # 3. 合計をファイル数で割り、平均を計算
-    mean_array = sum_array / len(file_list)
-    
-    # 4. 結果を保存
-    np.save(save_path, mean_array)
-    print(f"Saved mean to {save_path}")
-    
-    return mean_array
-
-
 def load_similarity_data(load_dir, force_recompute=False):
     """Load dot product and cosine similarity data, with caching."""
     mean_dot_path = os.path.join(load_dir, "mean_similarity_dot.npy")
     mean_cosine_path = os.path.join(load_dir, "mean_similarity_cosine.npy")
 
-    mean_similarity_dot = None
-    mean_similarity_cosine = None
-
-    # 既存ファイルがあればロード (この部分は変更なし)
+    # 既存ファイルがあればロード
     if not force_recompute and os.path.exists(mean_dot_path) and os.path.exists(mean_cosine_path):
         mean_similarity_dot = np.load(mean_dot_path)
         mean_similarity_cosine = np.load(mean_cosine_path)
         print("Loaded mean similarities from file.")
-        # 元のコードではNoneを返していたため、それに合わせる
         return (mean_similarity_dot, mean_similarity_cosine, None, None)
 
     # なければ計算
     dot_sim_files = sorted(glob.glob(os.path.join(load_dir, "similarity_dot_*.npy")))
     cosine_sim_files = sorted(glob.glob(os.path.join(load_dir, "similarity_cosine_*.npy")))
     
-    # 逐次処理で平均を計算するヘルパー関数を呼び出す
+    # 元の一括読み込み処理に戻す
     if dot_sim_files:
-        mean_similarity_dot = _compute_mean_iteratively(dot_sim_files, mean_dot_path)
+        print(f"Computing mean dot similarity from {len(dot_sim_files)} files...")
+        dot_similarities = np.array([np.load(f) for f in dot_sim_files])
+        mean_similarity_dot = np.mean(dot_similarities, axis=0)
+        np.save(mean_dot_path, mean_similarity_dot)
+        print(f"Saved mean dot similarity to {mean_dot_path}")
+    else:
+        mean_similarity_dot = None
         
     if cosine_sim_files:
-        mean_similarity_cosine = _compute_mean_iteratively(cosine_sim_files, mean_cosine_path)
+        print(f"Computing mean cosine similarity from {len(cosine_sim_files)} files...")
+        cosine_similarities = np.array([np.load(f) for f in cosine_sim_files])
+        mean_similarity_cosine = np.mean(cosine_similarities, axis=0)
+        np.save(mean_cosine_path, mean_similarity_cosine)
+        print(f"Saved mean cosine similarity to {mean_cosine_path}")
+    else:
+        mean_similarity_cosine = None
 
-    # 元の関数の返り値の形式に合わせる
-    return (mean_similarity_dot, mean_similarity_cosine, None, None)
+    # 個別データも返すように変更
+    return (mean_similarity_dot, mean_similarity_cosine, dot_similarities, cosine_similarities)
 
 
 def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suffix="", 
@@ -458,24 +441,45 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i):
     plt.close()
 
     rank_matrix = mean_distance.argsort(axis=1).argsort(axis=1) + 1
-    for cmap in ['Blues', 'Reds', 'Greens', 'bwr', 'Blues_Reds', 'Greys']:
-        filename = f'distance_rank_matrix_heatmap_{cmap}.png'
-        plt.figure(figsize=(5, 5))
+    for cmap in ['Blues', 'Reds', 'Greens', 'bwr', 'Blues_Reds', 'Greys', 'White_Blue']:
+        filename = f'distance_rank_matrix_heatmap_{cmap}_with_border.png'
+        
+        fig, ax = plt.subplots(figsize=(5, 5))
+        
         if cmap == 'Blues_Reds':
-            custom_cmap = colors.LinearSegmentedColormap.from_list('Blues_Reds', ['blue','red'])
-            im = plt.imshow(rank_matrix, cmap=custom_cmap, aspect='equal')
+            custom_cmap = colors.LinearSegmentedColormap.from_list('Blues_Reds', ['blue', 'red'])
+            im = ax.imshow(rank_matrix, cmap=custom_cmap, aspect='equal')
+        elif cmap == 'White_Blue':
+            custom_cmap = colors.LinearSegmentedColormap.from_list('White_Blue', ['white', 'blue'])
+            im = ax.imshow(rank_matrix, cmap=custom_cmap, aspect='equal')
         else:
-            im = plt.imshow(rank_matrix, cmap=cmap, aspect='equal')
-        plt.colorbar(im)
-        plt.xticks([])
-        plt.yticks([])
-        plt.gca()
-        # plt.title('Rank Matrix: iから見たjの距離順位（大きいほど順位大）')
-        # plt.xlabel('Agent j')
-        # plt.ylabel('Agent i')
-        plt.savefig(os.path.join(save_dir, filename), dpi=300)
-        plt.close()
+            im = ax.imshow(rank_matrix, cmap=cmap, aspect='equal')
+            
+        # plt.colorbar(im)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        rows, cols = rank_matrix.shape
+        center_edgecolor = "black"
+        concentric_cell_edgecolor = "red"
+        if cols > 7:
+            for i in range(rows):
+                for j in range(cols):
+                    if j == 7 and i != 7:
+                        rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
+                                            fill=False, 
+                                            edgecolor=center_edgecolor,
+                                            linewidth=0.7)
+                        ax.add_patch(rect)
+                    
+                    if rank_matrix[i, 7] > rank_matrix[i, j] and (i - 7) * (j - 7) < 0:
+                        rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
+                                            fill=False, 
+                                            edgecolor=concentric_cell_edgecolor,
+                                            linewidth=0.7)
+                        ax.add_patch(rect)
 
+        plt.savefig(os.path.join(save_dir, filename), dpi=300)
+        plt.close(fig)
 
 
 def plot_age_analysis(save_dir):
@@ -515,28 +519,49 @@ def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity
     if similarities is None or mean_similarity is None:
         return None, None
     
-    similarities_0_7 = similarities[:, 0, 7]
-    similarities_0_10 = similarities[:, 0, 10]
+    # Check if similarities is 3D (individual data) or 2D (mean data)
+    if similarities.ndim == 3:
+        # Individual similarity data available
+        similarities_0_7 = similarities[:, 0, 7]
+        similarities_0_10 = similarities[:, 0, 10]
+        
+        # Save similarity data
+        df_similarities = pd.DataFrame({
+            f'{similarity_type}_similarity_0_7': similarities_0_7,
+            f'{similarity_type}_similarity_0_10': similarities_0_10
+        })
+        csv_path = os.path.join(save_dir, f'{similarity_type}_similarities_0_7_0_10.csv')
+        df_similarities.to_csv(csv_path, index=False)
+        
+        # Histogram comparison
+        shift_amount = 0.005 if similarity_type == 'dot' else 0.001
+        plot_histogram_comparison(
+            similarities_0_7, similarities_0_10,
+            ['Agent 0-7', 'Agent 0-10'],
+            ['blue', 'red'],
+            os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram.png'),
+            shift_amount=shift_amount
+        )
+        
+        # Individual similarities heatmap (new addition)
+        plt.figure(figsize=(8, 6))
+        vmax = 1 if similarity_type == 'cosine' else None
+        im = plt.imshow(similarities, vmin=0, vmax=vmax, aspect="equal", cmap='viridis')
+        plt.colorbar(im, label=f"{similarity_type.title()} Similarity")
+        plt.title(f'Individual {similarity_type.title()} Similarities Over Time')
+        plt.xlabel('Agent ID')
+        plt.ylabel('Time Step')
+        plt.xticks(np.arange(similarities.shape[2]))
+        plt.yticks(np.arange(0, similarities.shape[0], max(1, similarities.shape[0]//10)))
+        plt.savefig(os.path.join(save_dir, f"individual_{similarity_type}_similarities_heatmap.png"), dpi=300)
+        plt.close()
+        
+        return similarities_0_7, similarities_0_10
+    else:
+        # Only mean similarity data available (memory-efficient mode)
+        print(f"Note: Only mean {similarity_type} similarity data available. Skipping individual analysis plots.")
     
-    # Save similarity data
-    df_similarities = pd.DataFrame({
-        f'{similarity_type}_similarity_0_7': similarities_0_7,
-        f'{similarity_type}_similarity_0_10': similarities_0_10
-    })
-    csv_path = os.path.join(save_dir, f'{similarity_type}_similarities_0_7_0_10.csv')
-    df_similarities.to_csv(csv_path, index=False)
-    
-    # Histogram comparison
-    shift_amount = 0.005 if similarity_type == 'dot' else 0.001
-    plot_histogram_comparison(
-        similarities_0_7, similarities_0_10,
-        ['Agent 0-7', 'Agent 0-10'],
-        ['blue', 'red'],
-        os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram.png'),
-        shift_amount=shift_amount
-    )
-    
-    # Heatmap
+    # Heatmap (always available with mean data)
     plt.figure(figsize=(5, 5))
     vmax = 1 if similarity_type == 'cosine' else None
     im = plt.imshow(mean_similarity, vmin=0, vmax=vmax, aspect="equal", cmap='viridis')
@@ -546,14 +571,74 @@ def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity
     plt.savefig(os.path.join(save_dir, f"mean_{similarity_type}_similarity_heatmap.png"), dpi=300)
     plt.close()
     
-    # Agent 0 similarity plot
+    # Agent 0 similarity plot (always available with mean data)
     plt.figure(figsize=(5, 5))
     plt.plot(np.arange(mean_similarity.shape[0]), mean_similarity[0], marker='o')
     plt.xticks([])
     plt.savefig(os.path.join(save_dir, f"mean_{similarity_type}_similarity_from_agent0.png"), dpi=300)
     plt.close()
     
-    return similarities_0_7, similarities_0_10
+    return None, None
+
+
+def plot_similarity_matrix_heatmaps(mean_similarity, save_dir, similarity_type, N_i):
+    """Plot similarity matrix heatmaps in the same format as plot_mean_distance_analysis."""
+    if mean_similarity is None:
+        return
+    
+    # Normalize similarity matrix to 0-1 range
+    similarity_normalized = mean_similarity.copy()
+    if similarity_type == 'dot':
+        # For dot product, normalize by N_i (maximum value is N_i)
+        similarity_normalized = similarity_normalized / N_i
+    # Cosine similarity is already in 0-1 range, no normalization needed
+    
+    extent = [0, similarity_normalized.shape[0], 0, similarity_normalized.shape[1]]
+    
+    # 1. Raw similarity matrix heatmap (Blues)
+    plt.figure(figsize=(5, 5))
+    im = plt.imshow(similarity_normalized, extent=extent, 
+                    cmap='Blues', aspect='equal', vmin=0, vmax=1)
+    # plt.colorbar(im, label=f"{similarity_type.title()} Similarity")
+    plt.xticks([])
+    plt.yticks([])
+    plt.savefig(os.path.join(save_dir, f"mean_{similarity_type}_similarity_heatmap_Blues.png"), dpi=300)
+    plt.close()
+    
+    # 2. Rank matrix heatmap (Blues) with borders like distance analysis
+    # Assign rank 1 to the largest value (descending order)
+    rank_matrix = mean_similarity.argsort(axis=1)[:, ::-1].argsort(axis=1) + 1
+    
+    fig, ax = plt.subplots(figsize=(5, 5))
+    im = ax.imshow(rank_matrix, cmap='Blues', aspect='equal')
+    # plt.colorbar(im, label=f"{similarity_type.title()} Similarity Rank")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    
+    # Add borders like distance analysis
+    rows, cols = rank_matrix.shape
+    plt.savefig(os.path.join(save_dir, f'{similarity_type}_similarity_rank_matrix_heatmap_Blues.png'), dpi=300)
+    center_edgecolor = "black"
+    concentric_cell_edgecolor = "red"
+    if cols > 7:
+        for i in range(rows):
+            for j in range(cols):
+                if j == 7 and i != 7:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
+                                        fill=False, 
+                                        edgecolor=center_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+                
+                if rank_matrix[i, 7] > rank_matrix[i, j] and (i - 7) * (j - 7) < 0:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
+                                        fill=False, 
+                                        edgecolor=concentric_cell_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+    
+    plt.savefig(os.path.join(save_dir, f'{similarity_type}_similarity_rank_matrix_heatmap_Blues_with_border.png'), dpi=300)
+    plt.close(fig)
 
 
 def perform_binomial_tests(distances_0_7, distances_0_10, similarities_dot_0_7, similarities_dot_0_10,
@@ -846,7 +931,7 @@ def analyze_and_plot_by_pair(args):
             for na, ft in combinations:
                 x1 = 1 if na == 'center' else 0
                 x2 = 1 if ft == 'outward' else 0
-                load_dir, _ = get_directory_paths(ft, na, args.coupling_strength, args.agents_count, args.N_i)
+                load_dir, _ = get_directory_paths(ft, na, args.coupling_strength, args.agents_count, args.N_i, args.alpha_per_data)
                 distance_files = sorted(glob.glob(os.path.join(load_dir, "distance_*.npy")))
                 for file_path in distance_files[args.skip:]:
                     snapshot_d = np.load(file_path)
@@ -930,7 +1015,7 @@ def main():
         print(f"{'='*50}")
         
         load_dir, save_dir = get_directory_paths(
-            ft, na, args.coupling_strength, args.agents_count, args.N_i
+            ft, na, args.coupling_strength, args.agents_count, args.N_i, args.alpha_per_data
         )
         os.makedirs(save_dir, exist_ok=True)
         
@@ -947,13 +1032,22 @@ def main():
             state_files = sorted(glob.glob(os.path.join(load_dir, "state_*.npy")))
             create_age_files(load_dir, save_dir, state_files)
         
-        (mean_similarity_dot, mean_similarity_cosine, 
-         _, _) = load_similarity_data(
-            load_dir, force_recompute=args.recompute_mean_similarity
-        )
+        # 必要な時だけ類似度データを読み込み
+        mean_similarity_dot = None
+        mean_similarity_cosine = None
+        dot_similarities = None
+        cosine_similarities = None
+        
+        if args.plot_similarity or args.check_concentric:
+            (mean_similarity_dot, mean_similarity_cosine, 
+             dot_similarities, cosine_similarities) = load_similarity_data(
+                load_dir, force_recompute=args.recompute_mean_similarity
+            )
         
         mean_distance = None
         if args.plot_distance:
+            print(f"Computing mean distance from {len(distance_files)} files...")
+            # メモリ効率的に平均を計算
             total_distance = None
             count = 0
             for f in distance_files:
@@ -965,19 +1059,66 @@ def main():
                 count += 1
             if count > 0:
                 mean_distance = total_distance / count
+            print("Mean distance computed successfully.")
         
         if args.plot_distance and mean_distance is not None:
-            print("Warning: plot_distance_analysis requires full distances array which is not loaded in this memory-efficient version. Plotting mean distance only.")
+            # 個別の距離データは必要ないので、平均値のみを使用
             plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i)
         
         if args.plot_age:
             plot_age_analysis(save_dir)
         
         if args.plot_similarity:
-            print("Warning: plot_similarity_analysis requires full similarity arrays which are not loaded in this memory-efficient version.")
+            plot_similarity_analysis(dot_similarities, mean_similarity_dot, save_dir, 'dot')
+            plot_similarity_analysis(cosine_similarities, mean_similarity_cosine, save_dir, 'cosine')
+            
+            # Add similarity matrix heatmaps (similar to distance heatmaps)
+            plot_similarity_matrix_heatmaps(mean_similarity_dot, save_dir, 'dot', args.N_i)
+            plot_similarity_matrix_heatmaps(mean_similarity_cosine, save_dir, 'cosine', args.N_i)
 
         if args.check_concentric:
-            print("Warning: check_concentric and perform_binomial_tests require full data arrays which are not loaded in this memory-efficient version.")
+            print("Checking concentric distribution patterns using memory-efficient processing...")
+            # メモリ効率的に同心円分布をチェック
+            concentric_results = []
+            for f in distance_files:
+                d = np.load(f)
+                is_concentric = is_concentric_distribution(d)
+                concentric_results.append(is_concentric)
+            concentric_rate = np.mean(concentric_results)
+            print(f"Concentric distribution rate: {concentric_rate:.3f}")
+            
+            # 二項検定は個別データが必要なので、メモリ効率的に計算
+            if len(distance_files) > 0:
+                # 必要な部分のみを計算
+                distances_0_7 = []
+                distances_0_10 = []
+                
+                for f in distance_files:
+                    snapshot_d = np.load(f)
+                    distances_0_7.append(snapshot_d[0, 7] / (2 * args.N_i))
+                    distances_0_10.append(snapshot_d[0, 10] / (2 * args.N_i))
+                
+                distances_0_7 = np.array(distances_0_7)
+                distances_0_10 = np.array(distances_0_10)
+                
+                # 類似度データも同様に処理
+                similarities_dot_0_7 = similarities_dot_0_10 = None
+                similarities_cosine_0_7 = similarities_cosine_0_10 = None
+                
+                if dot_similarities is not None:
+                    similarities_dot_0_7 = dot_similarities[:, 0, 7]
+                    similarities_dot_0_10 = dot_similarities[:, 0, 10]
+                    
+                if cosine_similarities is not None:
+                    similarities_cosine_0_7 = cosine_similarities[:, 0, 7]
+                    similarities_cosine_0_10 = cosine_similarities[:, 0, 10]
+                
+                perform_binomial_tests(
+                    distances_0_7, distances_0_10,
+                    similarities_dot_0_7, similarities_dot_0_10,
+                    similarities_cosine_0_7, similarities_cosine_0_10,
+                    mean_distance, mean_similarity_dot, mean_similarity_cosine
+                )
         
         if args.logistic_regression:
             concentric_gen = generate_concentric_data(distance_files, na, ft)
