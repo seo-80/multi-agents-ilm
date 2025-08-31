@@ -55,6 +55,10 @@ def parse_arguments():
                        help='If set, perform logistic regression analysis')
     parser.add_argument('--pairwise_regression', action='store_true', 
                        help='If set, perform pairwise logistic regression and plot heatmaps')
+    parser.add_argument('--center_agent', type=int, default=None,
+                       help='Index of the center (hub) agent (default: agents_count//2)')
+    parser.add_argument('--opposite_agent', type=int, default=None,
+                       help='Index of the opposite-side agent (default: agents_count//2 + (agents_count//2)//2)')
     
     return parser.parse_known_args()
 
@@ -239,45 +243,45 @@ def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suf
     plt.close()
 
 
-def plot_distance_analysis(distances, save_dir, N_i):
+def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agent):
     """Plot comprehensive distance analysis."""
     # 正規化
     norm_factor = 2 * N_i
-    distances_0_7 = distances[:, 0, 7] / norm_factor
-    distances_0_10 = distances[:, 0, 10] / norm_factor
+    distances_0_center = distances[:, 0, center_agent] / norm_factor
+    distances_0_opposite = distances[:, 0, opposite_agent] / norm_factor
     
     # Save distance data
     df_distances = pd.DataFrame({
-        'distance_0_7': distances_0_7,
-        'distance_0_10': distances_0_10
+        f'distance_0_{center_agent}': distances_0_center,
+        f'distance_0_{opposite_agent}': distances_0_opposite
     })
-    df_distances.to_csv(os.path.join(save_dir, 'distances_0_7_0_10.csv'), index=False)
+    df_distances.to_csv(os.path.join(save_dir, f'distances_0_{center_agent}_0_{opposite_agent}.csv'), index=False)
     
     # Histogram comparison
     plot_histogram_comparison(
-        distances_0_7, distances_0_10, 
-        ['Agent 0-7', 'Agent 0-10'], 
+        distances_0_center, distances_0_opposite, 
+        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'], 
         ['blue', 'red'],
         os.path.join(save_dir, 'agent_pair_distances_histogram.png')
     )
     
     # Log scale histogram
     plot_histogram_comparison(
-        distances_0_7, distances_0_10, 
-        ['Agent 0-7', 'Agent 0-10'], 
+        distances_0_center, distances_0_opposite, 
+        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'], 
         ['blue', 'red'],
         os.path.join(save_dir, 'agent_pair_distances_histogram_log.png'),
         log_scale=True
     )
     
     # Distance difference histogram
-    diff_distances = distances_0_7 - distances_0_10
+    diff_distances = distances_0_center - distances_0_opposite
     plt.figure(figsize=(5, 5))
     bin_edges = np.linspace(np.min(diff_distances), np.max(diff_distances), 402)
     mean_diff = np.mean(diff_distances)
     
     plt.hist(diff_distances, bins=bin_edges, alpha=0.75, 
-            label='d(0, 7) - d(0, 10)', color='green', density=True)
+            label=f'd(0, {center_agent}) - d(0, {opposite_agent})', color='green', density=True)
     plt.axvline(mean_diff, color='blue', linestyle='--', linewidth=0.5, 
                label=f'Mean Difference: {mean_diff:.2f}')
     # plt.xlabel('Distance Difference (d(0,7) - d(0,10))')
@@ -289,10 +293,10 @@ def plot_distance_analysis(distances, save_dir, N_i):
     
     # Scatter plot
     plt.figure(figsize=(6, 6))
-    plt.scatter(distances_0_7, distances_0_10, alpha=0.2, s=15, edgecolors='none')
-    max_val = max(np.max(distances_0_7), np.max(distances_0_10))
-    min_val = min(np.min(distances_0_7), np.min(distances_0_10))
-    plt.plot([min_val, max_val], [min_val, max_val], 'r--', label='d(0,7) = d(0,10)')
+    plt.scatter(distances_0_center, distances_0_opposite, alpha=0.2, s=15, edgecolors='none')
+    max_val = max(np.max(distances_0_center), np.max(distances_0_opposite))
+    min_val = min(np.min(distances_0_center), np.min(distances_0_opposite))
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', label=f'd(0,{center_agent}) = d(0,{opposite_agent})')
     # plt.xlabel('Distance d(0, 7)')
     # plt.ylabel('Distance d(0, 10)')
     plt.legend()
@@ -302,8 +306,8 @@ def plot_distance_analysis(distances, save_dir, N_i):
     plt.close()
     
     # Bubble charts and heatmaps
-    plot_bubble_charts(distances_0_7, distances_0_10, save_dir)
-    plot_2d_heatmaps(distances_0_7, distances_0_10, save_dir)
+    plot_bubble_charts(distances_0_center, distances_0_opposite, save_dir)
+    plot_2d_heatmaps(distances_0_center, distances_0_opposite, save_dir)
 
     # --- Rank Matrix Heatmap ---
     # 距離行列の平均を計算
@@ -311,19 +315,19 @@ def plot_distance_analysis(distances, save_dir, N_i):
     # 各行ごとに値が大きいほど順位が大きくなるように順位を計算（1始まり）
 
 
-def plot_bubble_charts(distances_0_7, distances_0_10, save_dir):
+def plot_bubble_charts(distances_x, distances_y, save_dir):
     """Plot bubble charts for distance data."""
     df_scatter = pd.DataFrame({
-        'd_0_7': distances_0_7,
-        'd_0_10': distances_0_10
+        'x': distances_x,
+        'y': distances_y
     })
-    bubble_data = df_scatter.groupby(['d_0_7', 'd_0_10']).size().reset_index(name='count')
+    bubble_data = df_scatter.groupby(['x', 'y']).size().reset_index(name='count')
     
     # Linear bubble chart
     plt.figure(figsize=(7, 6))
     scale_factor = 5
     bubble_sizes = bubble_data['count'] * scale_factor
-    plt.scatter(bubble_data['d_0_7'], bubble_data['d_0_10'], s=bubble_sizes, 
+    plt.scatter(bubble_data['x'], bubble_data['y'], s=bubble_sizes, 
                alpha=0.1, edgecolors="w", linewidth=0.5)
     # plt.xlabel('Distance d(0, 7)')
     # plt.ylabel('Distance d(0, 10)')
@@ -335,7 +339,7 @@ def plot_bubble_charts(distances_0_7, distances_0_10, save_dir):
     # Log bubble chart
     plt.figure(figsize=(7, 6))
     bubble_sizes_log = np.log(1 + bubble_data['count'] * scale_factor)
-    plt.scatter(bubble_data['d_0_7'], bubble_data['d_0_10'], s=bubble_sizes_log, 
+    plt.scatter(bubble_data['x'], bubble_data['y'], s=bubble_sizes_log, 
                alpha=0.8, edgecolors="w", linewidth=0.5)
     # plt.xlabel('Distance d(0, 7)')
     # plt.ylabel('Distance d(0, 10)')
@@ -345,10 +349,10 @@ def plot_bubble_charts(distances_0_7, distances_0_10, save_dir):
     plt.close()
 
 
-def plot_2d_heatmaps(distances_0_7, distances_0_10, save_dir):
+def plot_2d_heatmaps(distances_x, distances_y, save_dir):
     """Plot 2D heatmaps for distance data."""
     bins = 50
-    counts, xedges, yedges = np.histogram2d(distances_0_7, distances_0_10, bins=bins)
+    counts, xedges, yedges = np.histogram2d(distances_x, distances_y, bins=bins)
     extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
     
     # Linear scale heatmap
@@ -374,7 +378,7 @@ def plot_2d_heatmaps(distances_0_7, distances_0_10, save_dir):
         plt.close()
 
 
-def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i):
+def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_agent):
     """Plot mean distance heatmap in the same format as plot_2d_heatmaps."""
     # 正規化
     mean_distance = mean_distance / (2 * N_i)
@@ -428,19 +432,21 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i):
     # 1番目以降のデータ点を 'o' マーカーでプロット
     plt.plot(np.arange(mean_distance.shape[0])[1:], mean_distance[agent_id][1:], marker='o', color='C0', linestyle='None')
 
-    # 7番目のデータ点（インデックスは6）の座標を取得
-    x_point_7 = np.arange(mean_distance.shape[0])[7]
-    y_point_7 = mean_distance[agent_id][7]
+    # center_agent のデータ点の座標を取得
+    x_point_center = np.arange(mean_distance.shape[0])[center_agent]
+    y_point_center = mean_distance[agent_id][center_agent]
 
     # 7番目の点から軸に向かって垂直・水平線を引く
-    plt.vlines(x=x_point_7, ymin=0, ymax=1, colors='gray', linestyles='--')
-    plt.hlines(y=y_point_7, xmin=0, xmax=14, colors='gray', linestyles='--')
+    plt.vlines(x=x_point_center, ymin=0, ymax=1, colors='gray', linestyles='--')
+    plt.hlines(y=y_point_center, xmin=0, xmax=mean_distance.shape[1]-1, colors='gray', linestyles='--')
     plt.xticks([])
     plt.yticks([])
     plt.savefig(os.path.join(save_dir, f"mean_distance_from_agent{agent_id}_with_line.png"), dpi=300)
     plt.close()
 
     rank_matrix = mean_distance.argsort(axis=1).argsort(axis=1) + 1
+    # 同心円分布かどうかを判定（枠線付き出力の条件に使用）
+    is_concentric = is_concentric_distribution(mean_distance)
     for cmap in ['Blues', 'Reds', 'Greens', 'bwr', 'Blues_Reds', 'Greys', 'White_Blue']:
         filename = f'distance_rank_matrix_heatmap_{cmap}_with_border.png'
         
@@ -461,17 +467,17 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i):
         rows, cols = rank_matrix.shape
         center_edgecolor = "black"
         concentric_cell_edgecolor = "red"
-        if cols > 7:
+        if cols > center_agent:
             for i in range(rows):
                 for j in range(cols):
-                    if j == 7 and i != 7:
+                    if j == center_agent and i != center_agent:
                         rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
                                             fill=False, 
                                             edgecolor=center_edgecolor,
                                             linewidth=0.7)
                         ax.add_patch(rect)
                     
-                    if rank_matrix[i, 7] > rank_matrix[i, j] and (i - 7) * (j - 7) < 0:
+                    if rank_matrix[i, center_agent] > rank_matrix[i, j] and (i - center_agent) * (j - center_agent) < 0:
                         rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
                                             fill=False, 
                                             edgecolor=concentric_cell_edgecolor,
@@ -479,6 +485,17 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i):
                         ax.add_patch(rect)
 
         plt.savefig(os.path.join(save_dir, filename), dpi=300)
+        # 追加出力: 常に framed 版を保存。枠の有無は条件で切り替え
+        framed_filename = f'distance_rank_matrix_heatmap_{cmap}_with_border_framed.png'
+        if is_concentric and cmap == 'Blues':
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(3.0)
+                spine.set_edgecolor('black')
+        else:
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+        plt.savefig(os.path.join(save_dir, framed_filename), dpi=300)
         plt.close(fig)
 
 
@@ -514,7 +531,7 @@ def plot_age_analysis(save_dir):
     plt.close()
 
 
-def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity_type):
+def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity_type, center_agent, opposite_agent):
     """Plot similarity analysis (dot product or cosine)."""
     if similarities is None or mean_similarity is None:
         return None, None
@@ -522,22 +539,22 @@ def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity
     # Check if similarities is 3D (individual data) or 2D (mean data)
     if similarities.ndim == 3:
         # Individual similarity data available
-        similarities_0_7 = similarities[:, 0, 7]
-        similarities_0_10 = similarities[:, 0, 10]
+        similarities_0_center = similarities[:, 0, center_agent]
+        similarities_0_opposite = similarities[:, 0, opposite_agent]
         
         # Save similarity data
         df_similarities = pd.DataFrame({
-            f'{similarity_type}_similarity_0_7': similarities_0_7,
-            f'{similarity_type}_similarity_0_10': similarities_0_10
+            f'{similarity_type}_similarity_0_{center_agent}': similarities_0_center,
+            f'{similarity_type}_similarity_0_{opposite_agent}': similarities_0_opposite
         })
-        csv_path = os.path.join(save_dir, f'{similarity_type}_similarities_0_7_0_10.csv')
+        csv_path = os.path.join(save_dir, f'{similarity_type}_similarities_0_{center_agent}_0_{opposite_agent}.csv')
         df_similarities.to_csv(csv_path, index=False)
         
         # Histogram comparison
         shift_amount = 0.005 if similarity_type == 'dot' else 0.001
         plot_histogram_comparison(
-            similarities_0_7, similarities_0_10,
-            ['Agent 0-7', 'Agent 0-10'],
+            similarities_0_center, similarities_0_opposite,
+            [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
             ['blue', 'red'],
             os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram.png'),
             shift_amount=shift_amount
@@ -556,7 +573,7 @@ def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity
         plt.savefig(os.path.join(save_dir, f"individual_{similarity_type}_similarities_heatmap.png"), dpi=300)
         plt.close()
         
-        return similarities_0_7, similarities_0_10
+        return similarities_0_center, similarities_0_opposite
     else:
         # Only mean similarity data available (memory-efficient mode)
         print(f"Note: Only mean {similarity_type} similarity data available. Skipping individual analysis plots.")
@@ -581,7 +598,7 @@ def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity
     return None, None
 
 
-def plot_similarity_matrix_heatmaps(mean_similarity, save_dir, similarity_type, N_i):
+def plot_similarity_matrix_heatmaps(mean_similarity, save_dir, similarity_type, N_i, center_agent):
     """Plot similarity matrix heatmaps in the same format as plot_mean_distance_analysis."""
     if mean_similarity is None:
         return
@@ -620,17 +637,17 @@ def plot_similarity_matrix_heatmaps(mean_similarity, save_dir, similarity_type, 
     plt.savefig(os.path.join(save_dir, f'{similarity_type}_similarity_rank_matrix_heatmap_Blues.png'), dpi=300)
     center_edgecolor = "black"
     concentric_cell_edgecolor = "red"
-    if cols > 7:
+    if cols > center_agent:
         for i in range(rows):
             for j in range(cols):
-                if j == 7 and i != 7:
+                if j == center_agent and i != center_agent:
                     rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
                                         fill=False, 
                                         edgecolor=center_edgecolor,
                                         linewidth=0.7)
                     ax.add_patch(rect)
                 
-                if rank_matrix[i, 7] > rank_matrix[i, j] and (i - 7) * (j - 7) < 0:
+                if rank_matrix[i, center_agent] > rank_matrix[i, j] and (i - center_agent) * (j - center_agent) < 0:
                     rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
                                         fill=False, 
                                         edgecolor=concentric_cell_edgecolor,
@@ -641,46 +658,46 @@ def plot_similarity_matrix_heatmaps(mean_similarity, save_dir, similarity_type, 
     plt.close(fig)
 
 
-def perform_binomial_tests(distances_0_7, distances_0_10, similarities_dot_0_7, similarities_dot_0_10,
-                          similarities_cosine_0_7, similarities_cosine_0_10, mean_distance,
-                          mean_similarity_dot, mean_similarity_cosine):
+def perform_binomial_tests(distances_0_center, distances_0_opposite, similarities_dot_0_center, similarities_dot_0_opposite,
+                          similarities_cosine_0_center, similarities_cosine_0_opposite, mean_distance,
+                          mean_similarity_dot, mean_similarity_cosine, center_agent, opposite_agent):
     """Perform binomial tests for distance and similarity comparisons."""
     print("=== Distance Binomial test results ===")
     
     # Distance tests
-    over_count = np.sum(distances_0_7 > distances_0_10)
-    under_count = np.sum(distances_0_7 < distances_0_10)
-    equal_count = np.sum(distances_0_7 == distances_0_10)
-    total = len(distances_0_7)
+    over_count = np.sum(distances_0_center > distances_0_opposite)
+    under_count = np.sum(distances_0_center < distances_0_opposite)
+    equal_count = np.sum(distances_0_center == distances_0_opposite)
+    total = len(distances_0_center)
     
     p_value = stats.binomtest(over_count, n=total, p=0.5, alternative='two-sided').pvalue
     
-    print(f"Number of times 0-7 > 0-10: {over_count}/{total}")
-    print(f"Number of times 0-7 < 0-10: {under_count}/{total}")
-    print(f"Number of times 0-7 = 0-10: {equal_count}/{total}")
+    print(f"Number of times 0-{center_agent} > 0-{opposite_agent}: {over_count}/{total}")
+    print(f"Number of times 0-{center_agent} < 0-{opposite_agent}: {under_count}/{total}")
+    print(f"Number of times 0-{center_agent} = 0-{opposite_agent}: {equal_count}/{total}")
     print(f"p-value: {p_value:.3e}")
     print(f"mean distance is concentric: {is_concentric_distribution(mean_distance)}")
     
     # Similarity tests
-    if similarities_dot_0_7 is not None:
+    if similarities_dot_0_center is not None:
         print("\n=== Dot Product Similarity Binomial test results ===")
-        over_count_dot = np.sum(similarities_dot_0_7 > similarities_dot_0_10)
-        under_count_dot = np.sum(similarities_dot_0_7 < similarities_dot_0_10)
-        total_dot = len(similarities_dot_0_7)
+        over_count_dot = np.sum(similarities_dot_0_center > similarities_dot_0_opposite)
+        under_count_dot = np.sum(similarities_dot_0_center < similarities_dot_0_opposite)
+        total_dot = len(similarities_dot_0_center)
         p_value_dot = stats.binomtest(over_count_dot, n=total_dot, p=0.5, alternative='two-sided').pvalue
         
-        print(f"Number of times 0-7 > 0-10: {over_count_dot}/{total_dot}")
+        print(f"Number of times 0-{center_agent} > 0-{opposite_agent}: {over_count_dot}/{total_dot}")
         print(f"p-value: {p_value_dot:.3e}")
         print(f"mean dot similarity is concentric: {is_concentric_distribution(-mean_similarity_dot)}")
     
-    if similarities_cosine_0_7 is not None:
+    if similarities_cosine_0_center is not None:
         print("\n=== Cosine Similarity Binomial test results ===")
-        over_count_cosine = np.sum(similarities_cosine_0_7 > similarities_cosine_0_10)
-        under_count_cosine = np.sum(similarities_cosine_0_7 < similarities_cosine_0_10)
-        total_cosine = len(similarities_cosine_0_7)
+        over_count_cosine = np.sum(similarities_cosine_0_center > similarities_cosine_0_opposite)
+        under_count_cosine = np.sum(similarities_cosine_0_center < similarities_cosine_0_opposite)
+        total_cosine = len(similarities_cosine_0_center)
         p_value_cosine = stats.binomtest(over_count_cosine, n=total_cosine, p=0.5, alternative='two-sided').pvalue
         
-        print(f"Number of times 0-7 > 0-10: {over_count_cosine}/{total_cosine}")
+        print(f"Number of times 0-{center_agent} > 0-{opposite_agent}: {over_count_cosine}/{total_cosine}")
         print(f"p-value: {p_value_cosine:.3e}")
         print(f"mean cosine similarity is concentric: {is_concentric_distribution(-mean_similarity_cosine)}")
 
@@ -915,7 +932,7 @@ def analyze_and_plot_by_pair(args):
     else:
         print("Starting analysis for each (i, j) pair. This may take a very long time...")
         combinations = get_combinations(args.nonzero_alpha, args.flow_type)
-        hub_agent = 7
+        hub_agent = args.center_agent
         agents_count = args.agents_count
         results = []
         valid_pairs = []
@@ -1005,6 +1022,13 @@ def main():
     args, unknown = parse_arguments()
     
     combinations = get_combinations(args.nonzero_alpha, args.flow_type)
+
+    # Compute defaults for center and opposite agents if not provided
+    if args.center_agent is None:
+        args.center_agent = args.agents_count // 2
+    if args.opposite_agent is None:
+        half = args.agents_count // 2
+        args.opposite_agent = half + (half // 2)
     
     concentric_generators = []
     hub_comparison_generators = []
@@ -1063,18 +1087,18 @@ def main():
         
         if args.plot_distance and mean_distance is not None:
             # 個別の距離データは必要ないので、平均値のみを使用
-            plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i)
+            plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i, args.center_agent)
         
         if args.plot_age:
             plot_age_analysis(save_dir)
         
         if args.plot_similarity:
-            plot_similarity_analysis(dot_similarities, mean_similarity_dot, save_dir, 'dot')
-            plot_similarity_analysis(cosine_similarities, mean_similarity_cosine, save_dir, 'cosine')
+            plot_similarity_analysis(dot_similarities, mean_similarity_dot, save_dir, 'dot', args.center_agent, args.opposite_agent)
+            plot_similarity_analysis(cosine_similarities, mean_similarity_cosine, save_dir, 'cosine', args.center_agent, args.opposite_agent)
             
             # Add similarity matrix heatmaps (similar to distance heatmaps)
-            plot_similarity_matrix_heatmaps(mean_similarity_dot, save_dir, 'dot', args.N_i)
-            plot_similarity_matrix_heatmaps(mean_similarity_cosine, save_dir, 'cosine', args.N_i)
+            plot_similarity_matrix_heatmaps(mean_similarity_dot, save_dir, 'dot', args.N_i, args.center_agent)
+            plot_similarity_matrix_heatmaps(mean_similarity_cosine, save_dir, 'cosine', args.N_i, args.center_agent)
 
         if args.check_concentric:
             print("Checking concentric distribution patterns using memory-efficient processing...")
@@ -1090,34 +1114,35 @@ def main():
             # 二項検定は個別データが必要なので、メモリ効率的に計算
             if len(distance_files) > 0:
                 # 必要な部分のみを計算
-                distances_0_7 = []
-                distances_0_10 = []
+                distances_0_center = []
+                distances_0_opposite = []
                 
                 for f in distance_files:
                     snapshot_d = np.load(f)
-                    distances_0_7.append(snapshot_d[0, 7] / (2 * args.N_i))
-                    distances_0_10.append(snapshot_d[0, 10] / (2 * args.N_i))
+                    distances_0_center.append(snapshot_d[0, args.center_agent] / (2 * args.N_i))
+                    distances_0_opposite.append(snapshot_d[0, args.opposite_agent] / (2 * args.N_i))
                 
-                distances_0_7 = np.array(distances_0_7)
-                distances_0_10 = np.array(distances_0_10)
+                distances_0_center = np.array(distances_0_center)
+                distances_0_opposite = np.array(distances_0_opposite)
                 
                 # 類似度データも同様に処理
-                similarities_dot_0_7 = similarities_dot_0_10 = None
-                similarities_cosine_0_7 = similarities_cosine_0_10 = None
+                similarities_dot_0_center = similarities_dot_0_opposite = None
+                similarities_cosine_0_center = similarities_cosine_0_opposite = None
                 
                 if dot_similarities is not None:
-                    similarities_dot_0_7 = dot_similarities[:, 0, 7]
-                    similarities_dot_0_10 = dot_similarities[:, 0, 10]
+                    similarities_dot_0_center = dot_similarities[:, 0, args.center_agent]
+                    similarities_dot_0_opposite = dot_similarities[:, 0, args.opposite_agent]
                     
                 if cosine_similarities is not None:
-                    similarities_cosine_0_7 = cosine_similarities[:, 0, 7]
-                    similarities_cosine_0_10 = cosine_similarities[:, 0, 10]
+                    similarities_cosine_0_center = cosine_similarities[:, 0, args.center_agent]
+                    similarities_cosine_0_opposite = cosine_similarities[:, 0, args.opposite_agent]
                 
                 perform_binomial_tests(
-                    distances_0_7, distances_0_10,
-                    similarities_dot_0_7, similarities_dot_0_10,
-                    similarities_cosine_0_7, similarities_cosine_0_10,
-                    mean_distance, mean_similarity_dot, mean_similarity_cosine
+                    distances_0_center, distances_0_opposite,
+                    similarities_dot_0_center, similarities_dot_0_opposite,
+                    similarities_cosine_0_center, similarities_cosine_0_opposite,
+                    mean_distance, mean_similarity_dot, mean_similarity_cosine,
+                    args.center_agent, args.opposite_agent
                 )
         
         if args.logistic_regression:
@@ -1125,7 +1150,7 @@ def main():
             concentric_generators.append(concentric_gen)
             
             dist_gen = generate_hub_comparison_data_from_files(
-                distance_files, na, ft, args.agents_count, hub_agent=7
+                distance_files, na, ft, args.agents_count, hub_agent=args.center_agent
             )
             hub_comparison_generators.append(dist_gen)
     
@@ -1138,7 +1163,7 @@ def main():
         perform_logistic_regression(final_concentric_gen, "Concentric Distribution")
         
         final_dist_gen = itertools.chain.from_iterable(hub_comparison_generators)
-        perform_logistic_regression(final_dist_gen, "Hub Comparison: d(i, 7) > d(i, j)")
+        perform_logistic_regression(final_dist_gen, f"Hub Comparison: d(i, {args.center_agent}) > d(i, j)")
 
     if hasattr(args, 'pairwise_regression') and args.pairwise_regression:
         if not hasattr(args, 'save_dir') or not args.save_dir:

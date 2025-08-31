@@ -70,12 +70,15 @@ Pipfile.lock
 # Data and output files
 nohup.out
 data/
+results/
 *.npy
 *.csv
 *.bin
 *.h5
 *.gz
 *.png
+*.out
+*.err
 
 # Shell scripts
 *.sh
