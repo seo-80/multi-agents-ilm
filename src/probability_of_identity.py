@@ -40,17 +40,21 @@ def update_f(f, W, mu, N):
     f_new = np.zeros_like(f)
     for i in range(m):
         for j in range(m):
-            # Term 1: sum_{k,l} W_{ik} W_{jl} f_{kl}
+            # Term 1: 移住元の突然変異を考慮
             term1 = 0.0
             for k in range(m):
                 for l in range(m):
-                    term1 += W[i, k] * W[j, l] * f[k, l]
-            # Term 2: sum_k W_{ik} W_{jk} (1 - f_{kk})/(2N_k)
+                    # 移住元kとlの突然変異率をここで乗算
+                    term1 += (1 - mu[k]) * (1 - mu[l]) * W[i, k] * W[j, l] * f[k, l]
+
+            # Term 2: 移住元の突然変異を考慮
             term2 = 0.0
             for k in range(m):
-                term2 += W[i, k] * W[j, k] * (1 - f[k, k]) / (2 * N[k])
-            # Update
-            f_new[i, j] = (1 - mu[i]) * (1 - mu[j]) * (term1 + term2)
+                # 移住元kの突然変異率をここで乗算
+                term2 += (1 - mu[k])**2 * W[i, k] * W[j, k] * (1 - f[k, k]) / (2 * N[k])
+            
+            # 移住前に突然変異が起こるモデルの更新式
+            f_new[i, j] = term1 + term2
     return f_new
 
 
@@ -71,9 +75,9 @@ def main():
     # ==================================================================
     # === パラメータ設定エリア ===
     # ==================================================================
-    N_i_list = [100, 200, 500]
-    coupling_strength_list = [0.01, 0.001, 0.1]
-    alpha_per_data_list = [0.001, 0.01]
+    N_i_list = [100]
+    coupling_strength_list = [0.01]
+    alpha_per_data_list = [0.001]
     nonzero_alpha_list = ["evenly", "center"]
     network_types = {
         "bidirectional_flow_rate": "bidirectional",
@@ -129,6 +133,8 @@ def main():
         raw_save_path = os.path.join(raw_dir, "probability_of_identity.npy")
         if os.path.exists(raw_save_path):
             f_final = np.load(raw_save_path)
+            print(nonzero_alpha, network_key)
+            print(f_final)
         else:
             f_init = np.eye(agents_count)
             W = network_matrix
@@ -165,7 +171,7 @@ def main():
         plt.savefig(os.path.join(fig_dir, f"probability_of_identity_from_agent{agent_id_to_plot}.png")) # 保存先を fig_dir に変更
         plt.close()
 
-    # --- 結果の集計とCSV保存 (変更なし) ---
+    # --- 結果の集計とCSV保存 (追記・重複除外) ---
     if not all_results:
         print("No simulations were run. Exiting without creating summary file.")
         return
@@ -178,14 +184,26 @@ def main():
         aggfunc='first'
     )
     pivot_df.columns = ['_'.join(col) for col in pivot_df.columns.values]
-    pivot_df.to_csv(summary_filename)
+
+    # 既存 summary ファイルがあれば読み込んでマージ
+    if os.path.exists(summary_filename):
+        existing_df = pd.read_csv(summary_filename, index_col=[0,1,2])
+        # マージ（新しいデータ優先）
+        merged_df = pd.concat([existing_df, pivot_df])
+        merged_df = merged_df[~merged_df.index.duplicated(keep='last')]
+        # カラム順を揃える（新旧で異なる場合）
+        merged_df = merged_df.reindex(columns=sorted(merged_df.columns))
+    else:
+        merged_df = pivot_df
+
+    merged_df.to_csv(summary_filename)
     
     print("\n" + "="*50)
     print("All simulations completed.")
     print(f"Summary table saved to: {summary_filename}")
     print("="*50)
     print("Summary Table:")
-    print(pivot_df)
+    print(merged_df)
 
 if __name__ == "__main__":
     main()
