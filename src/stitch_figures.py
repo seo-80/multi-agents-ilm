@@ -28,9 +28,9 @@ from PIL import Image, ImageDraw, ImageFont
 # -----------------------------
 DEFAULT_COUPLING_STRENGTHS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1]
 DEFAULT_ALPHA_PER_DATA     = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01]
-DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100]
+# DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100, 125, 150, 175, 200, 500, 1000]
-#DEFAULT_N_I_LIST           = [25, 50, 100, 200,  400]
+DEFAULT_N_I_LIST           = [25, 50, 100, 200,  400]
 DEFAULT_FLOW_TYPES         = ["bidirectional", "outward"]
 DEFAULT_NONZERO_ALPHAS     = ["evenly", "center"]
 
@@ -89,10 +89,11 @@ def parse_list_ints(s: str):
 def build_parser():
     p = argparse.ArgumentParser(description="Stitch generated figures into a montage.")
     p.add_argument("--param_to_change", "-p",
-                   choices=["strength", "alpha", "Ni"],
+                   choices=["strength", "alpha", "Ni", "flow_center"],
                    required=False,   
                    help="Which parameter goes on the horizontal axis. "
-                        "If omitted, all (strength, alpha, Ni) will be processed.")
+                        "If omitted, all (strength, alpha, Ni) will be processed. "
+                        "Use 'flow_center' for 4-panel layout with fixed parameters.")
     p.add_argument("--figure_name", default=DEFAULT_FIGURE_NAME,
                    help="File name (not glob) of the figure to stitch from each directory.")
     # Fixed values (used for the non-varying parameters)
@@ -345,7 +346,7 @@ def main():
                 # Finally paste the (possibly annotated) tile
                 canvas.paste(tile, (x, y), tile)
 
-        # Output path handling (supports multiple runs)
+        # Output path handling (new structure)
         if args.output:
             # If running multiple params, suffix the filename with the param name
             base_out = args.output
@@ -357,33 +358,161 @@ def main():
             else:
                 out_path = f"{root}{ext}"
         else:
-            # Build a sweep-aware subdirectory, referencing the subdir style used in generators.
-            # We intentionally exclude flow_type and nonzero_alpha here because rows span both.
-            # Encode varying param as 'var' and fixed ones with their values to keep outputs separate
-            # across different settings (e.g., agents_count, N_i, alpha).
-            strength_tag = str(args.coupling_strength) if target_param != "strength" else "var"
-            alpha_tag    = str(args.alpha_per_data)    if target_param != "alpha"    else "var"
-            Ni_tag       = str(args.N_i)               if target_param != "Ni"       else "var"
-
-            sweep_dir = (
-                f"sweep_{col_label}_"
-                f"agents_{args.agents_count}_"
-                f"N_i_{Ni_tag}_"
-                f"alpha_{alpha_tag}_"
-                f"fr_{strength_tag}"
-            )
-
+            # New structure: param_sweeps/fixed_params/figure_type/param.png
             safe_fig = os.path.splitext(os.path.basename(args.figure_name))[0]
-            out_name = f"montage_{col_label}_{safe_fig}.png"
-            out_path = os.path.join(args.base_dir, "montage", sweep_dir, out_name)
+            fixed_dir = f"fixed_agents_{args.agents_count}_Ni_{args.N_i}_alpha_{args.alpha_per_data}_fr_{args.coupling_strength}"
+            
+            out_path = os.path.join(
+                args.base_dir, "montage", "param_sweeps", 
+                fixed_dir, safe_fig, f"{col_label}.png"
+            )
 
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         canvas.save(out_path)
         print(f"[OK] Saved: {out_path}")
 
+    def run_flow_center_comparison():
+        """Create 4-panel comparison: flow_type (bidirectional/outward) × nonzero_alpha (center/evenly)"""
+        # Fixed 2x2 grid
+        row_pairs = [
+            ("evenly", "bidirectional"),
+            ("evenly", "outward"), 
+            ("center", "bidirectional"),
+            ("center", "outward"),
+        ]
+        
+        # All parameters are fixed
+        strength = args.coupling_strength
+        alpha = args.alpha_per_data
+        Ni = args.N_i
+        
+        def resolve_dir(na, ft):
+            subdir = get_subdir(ft, na, strength, args.agents_count, Ni, alpha)
+            return os.path.join(args.base_dir, subdir)
+        
+        # Load first valid image to determine cell size
+        sample_img = None
+        sample_w = args.cell_width or 0
+        sample_h = args.cell_height or 0
+        for na, ft in row_pairs:
+            candidate_dir = resolve_dir(na, ft)
+            candidate_path = os.path.join(candidate_dir, args.figure_name)
+            if os.path.exists(candidate_path):
+                try:
+                    sample_img = Image.open(candidate_path).convert("RGBA")
+                    sample_w = sample_w or sample_img.width
+                    sample_h = sample_h or sample_img.height
+                    break
+                except Exception:
+                    pass
+        if sample_w == 0 or sample_h == 0:
+            sample_w, sample_h = 512, 512
+        
+        # 2x2 grid
+        cols, rows = 2, 2
+        W = (args.margin * 2 +
+             args.label_space_left +
+             cols * sample_w +
+             (cols - 1) * args.gutter_x)
+        H = (args.margin * 2 +
+             args.label_space_top +
+             rows * sample_h +
+             (rows - 1) * args.gutter_y)
+        
+        canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+        draw = ImageDraw.Draw(canvas)
+        
+        # Font setup
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 64)
+        except Exception:
+            font = ImageFont.load_default()
+        label_color = (20, 20, 20, 255)
+        
+        # Column labels (nonzero_alpha)
+        if not args.hide_outer_labels:
+            for ci, nonzero_alpha in enumerate(["evenly", "center"]):
+                x = (args.margin + args.label_space_left +
+                     ci * (sample_w + args.gutter_x))
+                y = args.margin
+                draw.text((x, y), nonzero_alpha, fill=label_color, font=font)
+        
+        # Row labels and tiles
+        for ri, flow_type in enumerate(["bidirectional", "outward"]):
+            # Row label
+            y_label = (args.margin + args.label_space_top +
+                       ri * (sample_h + args.gutter_y))
+            if not args.hide_outer_labels:
+                draw.text((args.margin, y_label), flow_type, fill=label_color, font=font)
+            
+            # Cells for this row
+            for ci, nonzero_alpha in enumerate(["evenly", "center"]):
+                x = (args.margin + args.label_space_left +
+                     ci * (sample_w + args.gutter_x))
+                y = (args.margin + args.label_space_top +
+                     ri * (sample_h + args.gutter_y))
+                
+                fig_dir = resolve_dir(nonzero_alpha, flow_type)
+                fig_path = os.path.join(fig_dir, args.figure_name)
+                tile = try_load_or_placeholder(fig_path, sample_w, sample_h)
+                
+                if tile.size != (sample_w, sample_h):
+                    tile = tile.resize((sample_w, sample_h), Image.BILINEAR)
+                
+                # Optional overlay
+                if args.overlay_on_tile:
+                    overlay_text = f"{nonzero_alpha}\n{flow_type}"
+                    tile_draw = ImageDraw.Draw(tile)
+                    try:
+                        bbox = tile_draw.textbbox((0, 0), overlay_text, font=font)
+                        text_w = bbox[2] - bbox[0]
+                        text_h = bbox[3] - bbox[1]
+                    except Exception:
+                        text_w, text_h = tile_draw.textlength(overlay_text, font=font), 36
+                    
+                    pad = args.overlay_pad
+                    ox, oy = compute_overlay_position(text_w, text_h, sample_w, sample_h, pad)
+                    bg_w = min(sample_w - ox, text_w + 2 * pad)
+                    bg_h = min(sample_h - oy, text_h + 2 * pad)
+                    
+                    bg = Image.new("RGBA", (bg_w, bg_h), (255, 255, 255, args.overlay_bg_alpha))
+                    tile.alpha_composite(bg, dest=(ox, oy))
+                    tile_draw.multiline_text((ox + pad, oy + pad), overlay_text, fill=label_color, font=font)
+                
+                canvas.paste(tile, (x, y), tile)
+        
+        # Output path for flow_center comparison
+        safe_fig = os.path.splitext(os.path.basename(args.figure_name))[0]
+        out_path = os.path.join(
+            args.base_dir, "montage", "comparisons",
+            f"fixed_agents_{args.agents_count}_Ni_{Ni}_alpha_{alpha}_fr_{strength}",
+            safe_fig,
+            "flow_center.png"
+        )
+        
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        canvas.save(out_path)
+        print(f"[OK] Saved: {out_path}")
+
+        def compute_overlay_position(text_w, text_h, sample_w, sample_h, pad):
+            if args.overlay_pos == "tl":
+                return pad, pad
+            if args.overlay_pos == "tr":
+                return max(0, sample_w - text_w - 2 * pad), pad
+            if args.overlay_pos == "bl":
+                return pad, max(0, sample_h - text_h - 2 * pad)
+            if args.overlay_pos == "br":
+                return max(0, sample_w - text_w - 2 * pad), max(0, sample_h - text_h - 2 * pad)
+            return max(0, (sample_w - text_w) // 2 - pad), max(0, (sample_h - text_h) // 2 - pad)
+
     # Decide which parameters to run
     if args.param_to_change:
-        params_to_run = [args.param_to_change]
+        if args.param_to_change == "flow_center":
+            # Special case: run 4-panel flow/center comparison
+            run_flow_center_comparison()
+            return
+        else:
+            params_to_run = [args.param_to_change]
     else:
         # When omitted, run all three sweeps in the order: Ni, strength, alpha
         params_to_run = ["Ni", "strength", "alpha"]

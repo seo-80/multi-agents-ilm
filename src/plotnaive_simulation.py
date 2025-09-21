@@ -9,6 +9,7 @@ from sklearn.metrics import classification_report
 import pandas as pd
 import statsmodels.api as sm
 import matplotlib.colors as colors
+from matplotlib.colors import BoundaryNorm, ListedColormap
 import itertools
 import pickle
 
@@ -59,6 +60,8 @@ def parse_arguments():
                        help='Index of the center (hub) agent (default: agents_count//2)')
     parser.add_argument('--opposite_agent', type=int, default=None,
                        help='Index of the opposite-side agent (default: agents_count//2 + (agents_count//2)//2)')
+    parser.add_argument('--plot_discrete_colorbar', action='store_true',
+                       help='If set, add discrete colorbar to distance rank matrix heatmap')
     
     return parser.parse_known_args()
 
@@ -200,6 +203,7 @@ def load_similarity_data(load_dir, force_recompute=False):
         print(f"Saved mean dot similarity to {mean_dot_path}")
     else:
         mean_similarity_dot = None
+        dot_similarities = None
         
     if cosine_sim_files:
         print(f"Computing mean cosine similarity from {len(cosine_sim_files)} files...")
@@ -209,6 +213,7 @@ def load_similarity_data(load_dir, force_recompute=False):
         print(f"Saved mean cosine similarity to {mean_cosine_path}")
     else:
         mean_similarity_cosine = None
+        cosine_similarities = None
 
     # 個別データも返すように変更
     return (mean_similarity_dot, mean_similarity_cosine, dot_similarities, cosine_similarities)
@@ -378,7 +383,7 @@ def plot_2d_heatmaps(distances_x, distances_y, save_dir):
         plt.close()
 
 
-def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_agent):
+def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_agent, plot_discrete_colorbar=False):
     """Plot mean distance heatmap in the same format as plot_2d_heatmaps."""
     # 正規化
     mean_distance = mean_distance / (2 * N_i)
@@ -474,14 +479,14 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_a
                         rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
                                             fill=False, 
                                             edgecolor=center_edgecolor,
-                                            linewidth=0.7)
+                                            linewidth=2)
                         ax.add_patch(rect)
                     
                     if rank_matrix[i, center_agent] > rank_matrix[i, j] and (i - center_agent) * (j - center_agent) < 0:
                         rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
                                             fill=False, 
                                             edgecolor=concentric_cell_edgecolor,
-                                            linewidth=0.7)
+                                            linewidth=2)
                         ax.add_patch(rect)
 
         plt.savefig(os.path.join(save_dir, filename), dpi=300)
@@ -490,8 +495,61 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_a
         if is_concentric and cmap == 'Blues':
             for spine in ax.spines.values():
                 spine.set_visible(True)
-                spine.set_linewidth(3.0)
+                spine.set_linewidth(8.0)
                 spine.set_edgecolor('black')
+            
+            # 離散的なカラーバーを作成
+            unique_ranks = np.unique(rank_matrix)
+            num_ranks = len(unique_ranks)
+            
+            # 離散的なカラーマップを作成
+            # Bluesカラーマップから必要な色数だけ取得
+            blues_colors = plt.cm.Blues(np.linspace(0.2, 1.0, num_ranks))
+            discrete_cmap = ListedColormap(blues_colors)
+            
+            # 境界を設定（各順位の境界）
+            bounds = np.arange(unique_ranks.min() - 0.5, unique_ranks.max() + 1.5, 1)
+            norm = BoundaryNorm(bounds, discrete_cmap.N)
+            
+            # 離散カラーマップでimageを再描画
+            ax.clear()  # 既存のimageをクリア
+            im_discrete = ax.imshow(rank_matrix, cmap=discrete_cmap, norm=norm, aspect='equal')
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+            # 枠線を再描画
+            rows, cols = rank_matrix.shape
+            center_edgecolor = "black"
+            concentric_cell_edgecolor = "red"
+            if cols > center_agent:
+                for i in range(rows):
+                    for j in range(cols):
+                        if j == center_agent and i != center_agent:
+                            rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
+                                                fill=False, 
+                                                edgecolor=center_edgecolor,
+                                                linewidth=2)
+                            ax.add_patch(rect)
+                        
+                        if rank_matrix[i, center_agent] > rank_matrix[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                            rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1, 
+                                                fill=False, 
+                                                edgecolor=concentric_cell_edgecolor,
+                                                linewidth=2)
+                            ax.add_patch(rect)
+            
+            # 枠線を再設定
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(8.0)
+                spine.set_edgecolor('black')
+            
+            # 離散的なカラーバーを追加
+            if plot_discrete_colorbar:
+                cbar = plt.colorbar(im_discrete, ax=ax, boundaries=bounds, 
+                              ticks=unique_ranks, shrink=0.8, spacing='uniform')
+                cbar.set_label('Distance Rank', rotation=270, labelpad=15)
+                cbar.ax.tick_params(labelsize=8)
         else:
             for spine in ax.spines.values():
                 spine.set_visible(False)
@@ -1052,9 +1110,20 @@ def main():
             
         distance_files = distance_files[args.skip:]
         
+        # Create age files proactively if requested or required by plotting
         if args.make_age_files:
             state_files = sorted(glob.glob(os.path.join(load_dir, "state_*.npy")))
             create_age_files(load_dir, save_dir, state_files)
+        elif args.plot_age:
+            # If age plotting is requested but age files are missing, generate them
+            age_mean_file = os.path.join(save_dir, 'word_age_mean_per_agent.csv')
+            if not os.path.exists(age_mean_file):
+                state_files = sorted(glob.glob(os.path.join(load_dir, "state_*.npy")))
+                if state_files:
+                    print("Age files not found; generating them for plot_age...")
+                    create_age_files(load_dir, save_dir, state_files)
+                else:
+                    print("No state_*.npy files found; cannot generate age files for plot_age.")
         
         # 必要な時だけ類似度データを読み込み
         mean_similarity_dot = None
@@ -1069,25 +1138,20 @@ def main():
             )
         
         mean_distance = None
+        distances = None
         if args.plot_distance:
-            print(f"Computing mean distance from {len(distance_files)} files...")
-            # メモリ効率的に平均を計算
-            total_distance = None
-            count = 0
-            for f in distance_files:
-                snapshot_d = np.load(f)
-                if total_distance is None:
-                    total_distance = snapshot_d.copy().astype(np.float64)
-                else:
-                    total_distance += snapshot_d
-                count += 1
-            if count > 0:
-                mean_distance = total_distance / count
-            print("Mean distance computed successfully.")
+            print(f"Loading distance data from {len(distance_files)} files...")
+            # ヒストグラム生成のため個別データも読み込む
+            distances = np.array([np.load(f) for f in distance_files])
+            mean_distance = np.mean(distances, axis=0)
+            print("Distance data loaded successfully.")
         
         if args.plot_distance and mean_distance is not None:
-            # 個別の距離データは必要ないので、平均値のみを使用
-            plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i, args.center_agent)
+            # 平均距離の分析
+            plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i, args.center_agent, args.plot_discrete_colorbar)
+            # ヒストグラムを含む距離分析
+            if distances is not None:
+                plot_distance_analysis(distances, save_dir, args.N_i, args.center_agent, args.opposite_agent)
         
         if args.plot_age:
             plot_age_analysis(save_dir)
