@@ -27,10 +27,13 @@ from PIL import Image, ImageDraw, ImageFont
 # Defaults (aligned to your runs)
 # -----------------------------
 DEFAULT_COUPLING_STRENGTHS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1]
+DEFAULT_COUPLING_STRENGTHS = [0.0025, 0.005, 0.01, 0.02, 0.04]
 DEFAULT_ALPHA_PER_DATA     = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01]
+DEFAULT_ALPHA_PER_DATA     = [0.00025, 0.0005, 0.001, 0.002, 0.004]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100, 125, 150, 175, 200, 500, 1000]
 DEFAULT_N_I_LIST           = [25, 50, 100, 200,  400]
+#DEFAULT_N_I_LIST           = [1, 25, 50, 100, 200,  400, 800, 1000,1600]
 DEFAULT_FLOW_TYPES         = ["bidirectional", "outward"]
 DEFAULT_NONZERO_ALPHAS     = ["evenly", "center"]
 
@@ -157,8 +160,138 @@ def build_parser():
                    help="Overlay position on each tile: top-left, top-right, bottom-left, bottom-right, or center.")
     p.add_argument("--suppress_redundant_overlay", action="store_true",
                    help="When outer labels are visible, drop row/column info from overlay to avoid duplication.")
+    p.add_argument("--debug", action="store_true",
+                   help="Enable debug mode to check correspondence between row labels and figure paths.")
     return p
 
+def debug_correspondence(args, target_param):
+    """行ラベルと実際の図のパスの対応を確認"""
+    import re
+
+    # 行の設定
+    chosen_flows = [s.strip() for s in args.flow_types.split(",") if s.strip()]
+    chosen_nzas  = [s.strip() for s in args.nonzero_alphas.split(",") if s.strip()]
+    row_pairs = [(na, ft) for (na, ft) in ROW_ORDER
+                 if na in chosen_nzas and ft in chosen_flows]
+
+    # 列の設定（最初の値のみチェック）
+    if target_param == "strength":
+        test_val = args.strength_values[0]
+        col_label = "strength"
+    elif target_param == "alpha":
+        test_val = args.alpha_values[0]
+        col_label = "alpha"
+    elif target_param == "Ni":
+        test_val = args.Ni_values[0]
+        col_label = "N_i"
+
+    print(f"\n=== 対応関係チェック (param: {target_param}, test_val: {test_val}) ===")
+
+    def resolve_dir(na, ft, val):
+        strength = args.coupling_strength
+        alpha    = args.alpha_per_data
+        Ni       = args.N_i
+        if target_param == "strength":
+            strength = val
+        elif target_param == "alpha":
+            alpha = val
+        elif target_param == "Ni":
+            Ni = int(val)
+
+        subdir = get_subdir(ft, na, strength, args.agents_count, Ni, alpha)
+        return os.path.join(args.base_dir, subdir)
+
+    # 全ての列値を取得
+    if target_param == "strength":
+        col_values = args.strength_values
+    elif target_param == "alpha":
+        col_values = args.alpha_values
+    elif target_param == "Ni":
+        col_values = args.Ni_values
+
+    # 不一致のカウント
+    total_cells = len(row_pairs) * len(col_values)
+    missing_files = 0
+    row_mismatches = 0
+    param_mismatches = 0
+
+    # 行ラベルと図のパスの対応をチェック
+    for ri, (na, ft) in enumerate(row_pairs):
+        for ci, val in enumerate(col_values):
+            fig_dir = resolve_dir(na, ft, val)
+            fig_path = os.path.join(fig_dir, args.figure_name)
+            exists = os.path.exists(fig_path)
+
+            # ディレクトリ名から設定を逆解析
+            if "bidirectional_flow-" in fig_dir:
+                detected_flow = "bidirectional"
+            elif "outward_flow-" in fig_dir:
+                detected_flow = "outward"
+            else:
+                detected_flow = "unknown"
+
+            if "nonzero_alpha_evenly" in fig_dir:
+                detected_na = "evenly"
+            elif "nonzero_alpha_center" in fig_dir:
+                detected_na = "center"
+            else:
+                detected_na = "unknown"
+
+            # パラメータ値の一致チェック
+            detected_param_val = None
+            if target_param == "strength":
+                # fr_0.01 のような部分を抽出
+                match = re.search(r'_fr_([0-9.]+)', fig_dir)
+                if match:
+                    detected_param_val = float(match.group(1))
+            elif target_param == "alpha":
+                # alpha_0.001 のような部分を抽出
+                match = re.search(r'_alpha_([0-9.]+)', fig_dir)
+                if match:
+                    detected_param_val = float(match.group(1))
+            elif target_param == "Ni":
+                # N_i_100 のような部分を抽出
+                match = re.search(r'_N_i_([0-9]+)', fig_dir)
+                if match:
+                    detected_param_val = int(match.group(1))
+
+            # 設定の一致チェック
+            row_match = (detected_na == na and detected_flow == ft)
+            param_match = (detected_param_val == val) if detected_param_val is not None else False
+
+            # 不一致の場合のみ詳細表示
+            has_issues = False
+            if not exists:
+                missing_files += 1
+                has_issues = True
+            if not row_match:
+                row_mismatches += 1
+                has_issues = True
+            if not param_match:
+                param_mismatches += 1
+                has_issues = True
+
+            if has_issues:
+                print(f"\n❌ Row {ri+1}, Col {ci+1} ({na}\\n{ft}, {col_label}={val}):")
+                print(f"   Path: {fig_path}")
+                if not exists:
+                    print(f"   → ファイル不存在 ✗")
+                if not row_match:
+                    print(f"   → 行設定不一致: detected=({detected_na}, {detected_flow}) vs expected=({na}, {ft}) ✗")
+                if not param_match:
+                    print(f"   → 列設定不一致: detected_{col_label}={detected_param_val} vs expected={val} ✗")
+
+    # サマリー表示
+    print(f"\n=== サマリー ===")
+    print(f"総セル数: {total_cells}")
+    print(f"ファイル不存在: {missing_files}")
+    print(f"行設定不一致: {row_mismatches}")
+    print(f"列設定不一致: {param_mismatches}")
+    success_rate = ((total_cells - missing_files - row_mismatches - param_mismatches) / total_cells) * 100
+    print(f"成功率: {success_rate:.1f}%")
+
+    if missing_files == 0 and row_mismatches == 0 and param_mismatches == 0:
+        print("✅ 全ての設定が正しく一致しています！")
 def main():
     args = build_parser().parse_args()
 
@@ -509,6 +642,8 @@ def main():
     if args.param_to_change:
         if args.param_to_change == "flow_center":
             # Special case: run 4-panel flow/center comparison
+            if args.debug:
+                print("Debug mode enabled but flow_center comparison doesn't use parameter sweeps")
             run_flow_center_comparison()
             return
         else:
@@ -522,6 +657,8 @@ def main():
     multiple_runs = (len(params_to_run) > 1)
 
     for p in params_to_run:
+        if args.debug:
+            debug_correspondence(args, p)
         run_one(p)
 
 if __name__ == "__main__":

@@ -81,12 +81,13 @@ def get_directory_paths(flow_type, nonzero_alpha, coupling_strength, agents_coun
         flow_str = 'outward_flow-'
     else:
         raise ValueError(f"Unknown flow_type: {flow_type}")
-    
+
     subdir = f"{flow_str}nonzero_alpha_{nonzero_alpha}_fr_{coupling_strength}_agents_{agents_count}_N_i_{N_i}_alpha_{alpha}"
     load_dir = f"data/naive_simulation/raw/{subdir}"
     save_dir = f"data/naive_simulation/fig/{subdir}"
-    
-    return load_dir, save_dir
+    distance_dir = f"data/naive_simulation/distance/{subdir}"
+
+    return load_dir, save_dir, distance_dir
 
 
 def is_concentric_distribution(distance_matrix):
@@ -220,7 +221,7 @@ def load_similarity_data(load_dir, force_recompute=False):
 
 
 def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suffix="", 
-                            log_scale=False, shift_amount=None):
+                            log_scale=False, shift_amount=None, orientation='vertical', overlay_kde=False, kde_bandwidth=None, unit_max_for_beta=None):
     """Plot histogram comparison between two datasets."""
     plt.figure(figsize=(5, 5))
     # bin幅を計算
@@ -233,19 +234,105 @@ def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suf
     for i, (data, label, color) in enumerate(zip([data1, data2], labels, colors)):
         mean_val = np.mean(data)
         shift = -shift_amount if i == 0 else shift_amount
-        plt.hist(data + shift, bins=bin_edges + shift, label=label, 
-                color=color, density=True)
-        plt.axvline(mean_val + shift, color=color, linestyle='--', 
-                   label=f'Mean {label}: {mean_val:.3f} (shifted)')
+        hist_alpha = 0.3 if overlay_kde else 1.0
+        plt.hist(
+            data + shift,
+            bins=bin_edges + shift,
+            label=label,
+            color=color,
+            density=True,
+            orientation='horizontal' if orientation == 'horizontal' else 'vertical',
+            alpha=hist_alpha
+        )
+        if orientation == 'horizontal':
+            plt.axhline(mean_val + shift, color=color, linestyle='--', 
+                        label=f'Mean {label}: {mean_val:.3f} (shifted)')
+        else:
+            plt.axvline(mean_val + shift, color=color, linestyle='--', 
+                        label=f'Mean {label}: {mean_val:.3f} (shifted)')
     
     if log_scale:
-        plt.yscale('log')
+        if orientation == 'horizontal':
+            plt.xscale('log')
+        else:
+            plt.yscale('log')
         plt.grid(True, alpha=0.3, which='both')
     else:
         plt.grid(True, alpha=0.3)
     
+    # KDE overlay using statsmodels beta kernel with boundary correction
+    if overlay_kde:
+        from statsmodels.nonparametric.kernels_asymmetric import pdf_kernel_asym
+        # 可変上限 (例: 距離やcosineは1、dotはN_i)
+        xmax = unit_max_for_beta if unit_max_for_beta is not None else np.max(all_data)
+        xmin = 0.0
+        # 正規化して[0,1]にスケーリング
+        scale = xmax - xmin
+        if scale <= 0:
+            scale = 1.0
+
+        # 境界処理用のパラメータ
+        eps = 1e-10
+        grid_unit = np.linspace(eps, 1.0 - eps, 1000)
+        # 自動的にbandwidthを調整: データの標準偏差ベース (Scott's rule修正版)
+        combined_data_unit = (all_data - xmin) / scale
+        combined_data_unit = np.clip(combined_data_unit, eps, 1.0 - eps)
+        std_unit = np.std(combined_data_unit)
+        # Scott's rule: bw = n^(-1/5) * std, but multiply by larger factor for beta kernel
+        auto_bw = 1.5 * (len(combined_data_unit) ** (-0.2)) * std_unit
+        bw = kde_bandwidth if kde_bandwidth is not None else max(0.02, min(0.2, auto_bw))
+        print(f"Using KDE bandwidth: {bw:.4f} (auto_bw={auto_bw:.4f}, std={std_unit:.4f})")
+
+        # 各データセットに対して個別にKDEを計算
+        for i, (data, color, label) in enumerate(zip([data1, data2], colors, labels)):
+            data_unit = (data - xmin) / scale
+            data_unit = np.clip(data_unit, eps, 1.0 - eps)
+
+            # データサイズが大きい場合はサンプリング
+            if len(data_unit) > 10000:
+                sample_indices = np.random.choice(len(data_unit), 10000, replace=False)
+                data_unit = data_unit[sample_indices]
+
+            # pdf_kernel_asymでKDE計算
+            y_unit = pdf_kernel_asym(grid_unit, data_unit, bw, kernel_type='beta', batch_size=100)
+
+            # 単位区間から元のスケールへ変換（密度は1/scaleでスケーリング）
+            x_grid = grid_unit * scale + xmin
+            y_density = y_unit / scale
+
+            if orientation == 'horizontal':
+                plt.plot(y_density, x_grid, color=color, linewidth=2.0, linestyle='-', alpha=1.0, label=f'KDE {label}')
+            else:
+                plt.plot(x_grid, y_density, color=color, linewidth=2.0, linestyle='-', alpha=1.0, label=f'KDE {label}')
+    
     plt.savefig(save_path, dpi=300)
     plt.close()
+
+
+def save_distance_data(distances, distance_dir, center_agent, opposite_agent):
+    """Save distance data as npy files."""
+    os.makedirs(distance_dir, exist_ok=True)
+
+    # Save full distance matrix [timesteps, agents, agents]
+    np.save(os.path.join(distance_dir, 'distance_full.npy'), distances)
+    print(f"Saved distance_full.npy to {distance_dir}")
+
+    # Save distances from agent 0 to center and opposite agents [timesteps, 2]
+    distances_0_center_opposite = np.stack([
+        distances[:, 0, center_agent],
+        distances[:, 0, opposite_agent]
+    ], axis=1)
+    np.save(os.path.join(distance_dir, 'distance_0_center_opposite.npy'), distances_0_center_opposite)
+    print(f"Saved distance_0_center_opposite.npy to {distance_dir}")
+
+    # Also save as xlsx
+    df_distances = pd.DataFrame(
+        distances_0_center_opposite,
+        columns=[f'distance_0_{center_agent}', f'distance_0_{opposite_agent}']
+    )
+    xlsx_path = os.path.join(distance_dir, 'distance_0_center_opposite.xlsx')
+    df_distances.to_excel(xlsx_path, index=False)
+    print(f"Saved distance_0_center_opposite.xlsx to {distance_dir}")
 
 
 def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agent):
@@ -268,6 +355,22 @@ def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agen
         [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'], 
         ['blue', 'red'],
         os.path.join(save_dir, 'agent_pair_distances_histogram.png')
+    )
+    # Horizontal (axis-swapped) histogram
+    plot_histogram_comparison(
+        distances_0_center, distances_0_opposite,
+        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+        ['blue', 'red'],
+        os.path.join(save_dir, 'agent_pair_distances_histogram_horizontal.png'),
+        orientation='horizontal'
+    )
+    # KDE overlay (Beta kernel over [0,1])
+    plot_histogram_comparison(
+        distances_0_center, distances_0_opposite,
+        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+        ['blue', 'red'],
+        os.path.join(save_dir, 'agent_pair_distances_histogram_kde.png'),
+        overlay_kde=True, unit_max_for_beta=1.0
     )
     
     # Log scale histogram
@@ -362,7 +465,7 @@ def plot_2d_heatmaps(distances_x, distances_y, save_dir):
     
     # Linear scale heatmap
     plt.figure(figsize=(5, 5))
-    im = plt.imshow(counts.T, extent=extent, 
+    im = plt.imshow(counts.T, extent=extent, origin='lower', 
                    cmap='viridis', aspect='equal')
     plt.colorbar(im)
     # plt.xlabel('Distance d(0, 7)')
@@ -374,7 +477,7 @@ def plot_2d_heatmaps(distances_x, distances_y, save_dir):
     for cmap in ['Blues', 'Reds', 'Greens']:
         plt.figure(figsize=(5, 5))
         counts_masked = np.ma.masked_where(counts == 0, counts)
-        im_log = plt.imshow(counts_masked.T, extent=extent, 
+        im_log = plt.imshow(counts_masked.T, extent=extent, origin='lower', 
                            cmap=cmap, aspect='equal', norm=colors.LogNorm())
         plt.colorbar(im_log)
         # plt.xlabel('Distance d(0, 7)')
@@ -616,6 +719,23 @@ def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity
             ['blue', 'red'],
             os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram.png'),
             shift_amount=shift_amount
+        )
+        # Horizontal (axis-swapped) histogram
+        plot_histogram_comparison(
+            similarities_0_center, similarities_0_opposite,
+            [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+            ['blue', 'red'],
+            os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram_horizontal.png'),
+            shift_amount=shift_amount, orientation='horizontal'
+        )
+        # KDE overlay (Beta kernel). For cosine, data in [0,1]; for dot, scale by data max.
+        plot_histogram_comparison(
+            similarities_0_center, similarities_0_opposite,
+            [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+            ['blue', 'red'],
+            os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram_kde.png'),
+            shift_amount=shift_amount, overlay_kde=True,
+            unit_max_for_beta=(1.0 if similarity_type == 'cosine' else None)
         )
         
         # Individual similarities heatmap (new addition)
@@ -1006,7 +1126,7 @@ def analyze_and_plot_by_pair(args):
             for na, ft in combinations:
                 x1 = 1 if na == 'center' else 0
                 x2 = 1 if ft == 'outward' else 0
-                load_dir, _ = get_directory_paths(ft, na, args.coupling_strength, args.agents_count, args.N_i, args.alpha_per_data)
+                load_dir, _, _ = get_directory_paths(ft, na, args.coupling_strength, args.agents_count, args.N_i, args.alpha_per_data)
                 distance_files = sorted(glob.glob(os.path.join(load_dir, "distance_*.npy")))
                 for file_path in distance_files[args.skip:]:
                     snapshot_d = np.load(file_path)
@@ -1096,7 +1216,7 @@ def main():
         print(f"Processing: {na} + {ft}")
         print(f"{'='*50}")
         
-        load_dir, save_dir = get_directory_paths(
+        load_dir, save_dir, distance_dir = get_directory_paths(
             ft, na, args.coupling_strength, args.agents_count, args.N_i, args.alpha_per_data
         )
         os.makedirs(save_dir, exist_ok=True)
@@ -1147,6 +1267,9 @@ def main():
             print("Distance data loaded successfully.")
         
         if args.plot_distance and mean_distance is not None:
+            # Save distance data
+            if distances is not None:
+                save_distance_data(distances, distance_dir, args.center_agent, args.opposite_agent)
             # 平均距離の分析
             plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i, args.center_agent, args.plot_discrete_colorbar)
             # ヒストグラムを含む距離分析
