@@ -220,36 +220,67 @@ def load_similarity_data(load_dir, force_recompute=False):
     return (mean_similarity_dot, mean_similarity_cosine, dot_similarities, cosine_similarities)
 
 
-def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suffix="", 
-                            log_scale=False, shift_amount=None, orientation='vertical', overlay_kde=False, kde_bandwidth=None, unit_max_for_beta=None):
+def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suffix="",
+                            log_scale=False, shift_amount=None, orientation='vertical', overlay_kde=False, kde_bandwidth=None, unit_max_for_beta=None, n_bins=None):
     """Plot histogram comparison between two datasets."""
     plt.figure(figsize=(5, 5))
     # bin幅を計算
     all_data = np.concatenate([data1, data2])
-    bin_edges = np.linspace(np.min(all_data), np.max(all_data), 202)
-    bin_width = bin_edges[1] - bin_edges[0]
-    if shift_amount is None:
-        shift_amount = bin_width / 2
-    
-    for i, (data, label, color) in enumerate(zip([data1, data2], labels, colors)):
-        mean_val = np.mean(data)
-        shift = -shift_amount if i == 0 else shift_amount
-        hist_alpha = 0.3 if overlay_kde else 1.0
-        plt.hist(
-            data + shift,
-            bins=bin_edges + shift,
-            label=label,
-            color=color,
-            density=True,
-            orientation='horizontal' if orientation == 'horizontal' else 'vertical',
-            alpha=hist_alpha
-        )
-        if orientation == 'horizontal':
-            plt.axhline(mean_val + shift, color=color, linestyle='--', 
-                        label=f'Mean {label}: {mean_val:.3f} (shifted)')
-        else:
-            plt.axvline(mean_val + shift, color=color, linestyle='--', 
-                        label=f'Mean {label}: {mean_val:.3f} (shifted)')
+
+    if n_bins is None:
+        # デフォルトの動作：shift方式
+        bin_edges = np.linspace(np.min(all_data), np.max(all_data), 202)
+        bin_width = bin_edges[1] - bin_edges[0]
+        if shift_amount is None:
+            shift_amount = bin_width / 2
+
+        for i, (data, label, color) in enumerate(zip([data1, data2], labels, colors)):
+            mean_val = np.mean(data)
+            shift = -shift_amount if i == 0 else shift_amount
+            hist_alpha = 0.3 if overlay_kde else 1.0
+            plt.hist(
+                data + shift,
+                bins=bin_edges + shift,
+                label=label,
+                color=color,
+                density=True,
+                orientation='horizontal' if orientation == 'horizontal' else 'vertical',
+                alpha=hist_alpha
+            )
+            if orientation == 'horizontal':
+                plt.axhline(mean_val + shift, color=color, linestyle='--',
+                            label=f'Mean {label}: {mean_val:.3f} (shifted)')
+            else:
+                plt.axvline(mean_val + shift, color=color, linestyle='--',
+                            label=f'Mean {label}: {mean_val:.3f} (shifted)')
+    else:
+        # n_binsが指定されている場合：並べて表示
+        bin_edges = np.linspace(np.min(all_data), np.max(all_data), n_bins + 1)
+        bin_width = bin_edges[1] - bin_edges[0]
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        bar_width = bin_width * 0.4  # 各バーの幅をビン幅の40%に
+
+        for i, (data, label, color) in enumerate(zip([data1, data2], labels, colors)):
+            mean_val = np.mean(data)
+            hist_alpha = 0.3 if overlay_kde else 1.0
+
+            # ヒストグラムを計算
+            counts, _ = np.histogram(data, bins=bin_edges, density=True)
+
+            # バーの位置を計算（左右にずらす）
+            offset = -bar_width / 2 if i == 0 else bar_width / 2
+            positions = bin_centers + offset
+
+            if orientation == 'horizontal':
+                plt.barh(positions, counts, height=bar_width, label=label,
+                        color=color, alpha=hist_alpha)
+                plt.axhline(mean_val, color=color, linestyle='--',
+                           label=f'Mean {label}: {mean_val:.3f}')
+            else:
+                plt.bar(positions, counts, width=bar_width, label=label,
+                       color=color, alpha=hist_alpha)
+                plt.axvline(mean_val, color=color, linestyle='--',
+                           label=f'Mean {label}: {mean_val:.3f}')
     
     if log_scale:
         if orientation == 'horizontal':
@@ -351,10 +382,26 @@ def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agen
     
     # Histogram comparison
     plot_histogram_comparison(
-        distances_0_center, distances_0_opposite, 
-        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'], 
+        distances_0_center, distances_0_opposite,
+        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
         ['blue', 'red'],
         os.path.join(save_dir, 'agent_pair_distances_histogram.png')
+    )
+    # Histogram comparison with fixed 25 bins
+    plot_histogram_comparison(
+        distances_0_center, distances_0_opposite,
+        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+        ['blue', 'red'],
+        os.path.join(save_dir, 'agent_pair_distances_histogram_bins25.png'),
+        n_bins=25
+    )
+    # Histogram comparison with fixed 25 bins (horizontal)
+    plot_histogram_comparison(
+        distances_0_center, distances_0_opposite,
+        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+        ['blue', 'red'],
+        os.path.join(save_dir, 'agent_pair_distances_histogram_bins25_horizontal.png'),
+        n_bins=25, orientation='horizontal'
     )
     # Horizontal (axis-swapped) histogram
     plot_histogram_comparison(

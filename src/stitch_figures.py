@@ -32,7 +32,7 @@ DEFAULT_ALPHA_PER_DATA     = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01]
 DEFAULT_ALPHA_PER_DATA     = [0.00025, 0.0005, 0.001, 0.002, 0.004]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100, 125, 150, 175, 200, 500, 1000]
-DEFAULT_N_I_LIST           = [25, 50, 100, 200,  400]
+DEFAULT_N_I_LIST           = [25, 50, 100, 200, 400]
 #DEFAULT_N_I_LIST           = [1, 25, 50, 100, 200,  400, 800, 1000,1600]
 DEFAULT_FLOW_TYPES         = ["bidirectional", "outward"]
 DEFAULT_NONZERO_ALPHAS     = ["evenly", "center"]
@@ -70,8 +70,12 @@ def try_load_or_placeholder(path: str, cell_w: int = 512, cell_h: int = 512) -> 
         try:
             img = Image.open(path).convert("RGBA")
             return img
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️  WARNING: Failed to load existing image: {path}")
+            print(f"    Error: {e}")
+    else:
+        print(f"⚠️  WARNING: Image file does not exist: {path}")
+
     # Placeholder
     img = Image.new("RGBA", (cell_w, cell_h), (245, 245, 245, 255))
     draw = ImageDraw.Draw(img)
@@ -82,6 +86,24 @@ def try_load_or_placeholder(path: str, cell_w: int = 512, cell_h: int = 512) -> 
     truncated = path[-80:] if len(path) > 80 else path
     draw.text((10, 30), truncated, fill=(80, 80, 80, 255))
     return img
+
+def load_gif_frames(path: str) -> list:
+    """Load all frames from a GIF file. Returns list of RGBA images."""
+    if not os.path.exists(path):
+        return None
+    try:
+        img = Image.open(path)
+        frames = []
+        durations = []
+        for frame_idx in range(img.n_frames):
+            img.seek(frame_idx)
+            frame = img.convert("RGBA")
+            frames.append(frame)
+            durations.append(img.info.get('duration', 100))
+        return frames, durations
+    except Exception as e:
+        print(f"Error loading GIF {path}: {e}")
+        return None
 
 def parse_list_floats(s: str):
     return [float(x) for x in s.split(",") if x.strip()]
@@ -295,7 +317,189 @@ def debug_correspondence(args, target_param):
 def main():
     args = build_parser().parse_args()
 
+    def process_gif_montage(args, target_param, row_pairs, col_values, col_label,
+                           resolve_dir, sample_w, sample_h, W, H):
+        """Process GIF files and create animated montage."""
+        print(f"Processing GIF montage for {col_label}...")
+
+        # Load all GIF tiles and collect frames
+        tile_gifs = {}  # (row_idx, col_idx) -> (frames_list, durations_list)
+        num_frames = None
+
+        for ri, (na, ft) in enumerate(row_pairs):
+            for ci, val in enumerate(col_values):
+                fig_dir = resolve_dir(na, ft, val)
+                fig_path = os.path.join(fig_dir, args.figure_name)
+
+                result = load_gif_frames(fig_path)
+                if result is None:
+                    print(f"Warning: Could not load GIF at {fig_path}, using placeholder")
+                    # Create placeholder frames
+                    placeholder = try_load_or_placeholder(fig_path, sample_w, sample_h)
+                    tile_gifs[(ri, ci)] = ([placeholder], [100])
+                else:
+                    frames, durations = result
+                    tile_gifs[(ri, ci)] = (frames, durations)
+
+                    # Check frame count consistency
+                    if num_frames is None:
+                        num_frames = len(frames)
+                        print(f"Expected frame count: {num_frames}")
+                    elif len(frames) != num_frames:
+                        raise ValueError(
+                            f"Frame count mismatch at {fig_path}: "
+                            f"expected {num_frames}, got {len(frames)}"
+                        )
+
+        if num_frames is None or num_frames == 0:
+            raise ValueError("No valid GIF frames found")
+
+        # Get average duration (should be same for all)
+        first_durations = tile_gifs[(0, 0)][1]
+        avg_duration = sum(first_durations) // len(first_durations) if first_durations else 100
+
+        print(f"Creating {num_frames} montage frames with duration={avg_duration}ms each...")
+
+        # Font setup
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", 64)
+        except Exception:
+            font = ImageFont.load_default()
+        label_color = (20, 20, 20, 255)
+
+        # Create montage for each frame
+        montage_frames = []
+        for frame_idx in range(num_frames):
+            canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
+            draw = ImageDraw.Draw(canvas)
+
+            # Top column labels
+            if not args.hide_outer_labels:
+                for ci, val in enumerate(col_values):
+                    x = (args.margin + args.label_space_left +
+                         ci * (sample_w + args.gutter_x))
+                    y = args.margin
+                    txt = f"{col_label} = {val}"
+                    draw.text((x, y), txt, fill=label_color, font=font)
+
+            # Left row labels and tiles
+            for ri, (na, ft) in enumerate(row_pairs):
+                y_label = (args.margin + args.label_space_top +
+                           ri * (sample_h + args.gutter_y))
+                if not args.hide_outer_labels:
+                    row_label = f"{na}\n{ft}"
+                    draw.multiline_text((args.margin, y_label), row_label,
+                                       fill=label_color, font=font, spacing=4)
+
+                # Cells
+                for ci, val in enumerate(col_values):
+                    x = (args.margin + args.label_space_left +
+                         ci * (sample_w + args.gutter_x))
+                    y = (args.margin + args.label_space_top +
+                         ri * (sample_h + args.gutter_y))
+
+                    frames, _ = tile_gifs[(ri, ci)]
+                    tile = frames[min(frame_idx, len(frames) - 1)]  # Use last frame if shorter
+
+                    # Resize if needed
+                    if tile.size != (sample_w, sample_h):
+                        tile = tile.resize((sample_w, sample_h), Image.BILINEAR)
+
+                    # Optional overlay text on tile
+                    if args.overlay_on_tile:
+                        strength_val = args.coupling_strength if target_param != "strength" else val
+                        alpha_val = args.alpha_per_data if target_param != "alpha" else val
+                        Ni_val = args.N_i if target_param != "Ni" else int(val)
+
+                        fields = {
+                            "col_label": col_label,
+                            "val": val,
+                            "nonzero_alpha": na,
+                            "flow_type": ft,
+                            "strength": str(strength_val),
+                            "alpha": str(alpha_val),
+                            "N_i": str(Ni_val),
+                        }
+
+                        if args.suppress_redundant_overlay and not args.hide_outer_labels:
+                            for k in ("col_label", "nonzero_alpha", "flow_type"):
+                                fields.pop(k, None)
+
+                        safe_fields = {k: fields.get(k, "") for k in [
+                            "col_label", "val", "nonzero_alpha", "flow_type", "strength", "alpha", "N_i"]}
+                        overlay_text = args.overlay_fmt.format(**safe_fields)
+
+                        tile_draw = ImageDraw.Draw(tile)
+                        try:
+                            bbox = tile_draw.textbbox((0, 0), overlay_text, font=font)
+                            text_w = bbox[2] - bbox[0]
+                            text_h = bbox[3] - bbox[1]
+                        except Exception:
+                            text_w, text_h = tile_draw.textlength(overlay_text, font=font), 18
+
+                        pad = args.overlay_pad
+
+                        # Compute overlay position
+                        if args.overlay_pos == "tl":
+                            ox, oy = pad, pad
+                        elif args.overlay_pos == "tr":
+                            ox, oy = max(0, sample_w - text_w - 2 * pad), pad
+                        elif args.overlay_pos == "bl":
+                            ox, oy = pad, max(0, sample_h - text_h - 2 * pad)
+                        elif args.overlay_pos == "br":
+                            ox, oy = max(0, sample_w - text_w - 2 * pad), max(0, sample_h - text_h - 2 * pad)
+                        else:  # center
+                            ox, oy = max(0, (sample_w - text_w) // 2 - pad), max(0, (sample_h - text_h) // 2 - pad)
+
+                        bg_w = min(sample_w - ox, text_w + 2 * pad)
+                        bg_h = min(sample_h - oy, text_h + 2 * pad)
+
+                        bg = Image.new("RGBA", (bg_w, bg_h), (255, 255, 255, args.overlay_bg_alpha))
+                        tile.alpha_composite(bg, dest=(ox, oy))
+                        tile_draw.text((ox + pad, oy + pad), overlay_text, fill=label_color, font=font)
+
+                    canvas.paste(tile, (x, y), tile)
+
+            montage_frames.append(canvas)
+            if (frame_idx + 1) % 10 == 0 or frame_idx == num_frames - 1:
+                print(f"  Processed frame {frame_idx + 1}/{num_frames}")
+
+        # Output path handling
+        if args.output:
+            base_out = args.output
+            root, ext = os.path.splitext(base_out)
+            if ext == "":
+                ext = ".gif"
+            if multiple_runs:
+                out_path = f"{root}_{col_label}{ext}"
+            else:
+                out_path = f"{root}{ext}"
+        else:
+            safe_fig = os.path.splitext(os.path.basename(args.figure_name))[0]
+            fixed_dir = f"fixed_agents_{args.agents_count}_Ni_{args.N_i}_alpha_{args.alpha_per_data}_fr_{args.coupling_strength}"
+            out_path = os.path.join(
+                args.base_dir, "montage", "param_sweeps",
+                fixed_dir, safe_fig, f"{col_label}.gif"
+            )
+
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+        # Save as GIF
+        print(f"Saving GIF with {num_frames} frames to {out_path}...")
+        montage_frames[0].save(
+            out_path,
+            save_all=True,
+            append_images=montage_frames[1:],
+            duration=avg_duration,
+            loop=0,
+            optimize=False
+        )
+        print(f"[OK] Saved GIF: {out_path}")
+
     def run_one(target_param: str):
+        # Check if we're processing a GIF
+        is_gif = args.figure_name.lower().endswith('.gif')
+
         # Prepare rows
         chosen_flows = [s.strip() for s in args.flow_types.split(",") if s.strip()]
         chosen_nzas  = [s.strip() for s in args.nonzero_alphas.split(",") if s.strip()]
@@ -366,6 +570,11 @@ def main():
              args.label_space_top +
              rows * sample_h +
              (rows - 1) * args.gutter_y)
+
+        # GIF処理の場合
+        if is_gif:
+            return process_gif_montage(args, target_param, row_pairs, col_values, col_label,
+                                       resolve_dir, sample_w, sample_h, W, H)
 
         canvas = Image.new("RGBA", (W, H), (255, 255, 255, 255))
         draw = ImageDraw.Draw(canvas)
