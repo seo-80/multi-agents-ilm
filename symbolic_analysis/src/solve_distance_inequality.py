@@ -64,7 +64,7 @@ def solve_distance_inequality(expr1: sympy.Expr, expr2: sympy.Expr,
 
 def analyze_inequality_numerically(expr1: sympy.Expr, expr2: sympy.Expr,
                                    m_range: Tuple[float, float] = (0.01, 0.99),
-                                   alpha_range: Tuple[float, float] = (0.01, 100.0),
+                                   alpha_range: Tuple[float, float] = (0.0001, 100.0),
                                    grid_size: int = 100) -> Dict:
     """
     Numerically analyze where expr1 > expr2 in parameter space.
