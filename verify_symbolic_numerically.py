@@ -32,9 +32,17 @@ print("\nStationary distribution (numerical):")
 pi_numerical = []
 for i, state in enumerate(states):
     state_str = str(state).replace('frozenset', '').replace('(', '').replace(')', '')
-    pi_val = float(pi[i].subs({m: m_val, alpha: alpha_val}).n())
-    pi_numerical.append(pi_val)
-    print(f"  π_{i+1} (State {i+1}): {pi_val:.10f}")
+    pi_expr = pi[i].subs({m: m_val, alpha: alpha_val})
+    print(f"  State {i+1}: {state_str}")
+    print(f"    Expression: {pi_expr}")
+    try:
+        pi_val = complex(pi_expr.n()).real  # Use complex then take real part
+        pi_numerical.append(pi_val)
+        print(f"    π_{i+1} = {pi_val:.10f}")
+    except Exception as e:
+        print(f"    Error converting to float: {e}")
+        pi_numerical.append(float('nan'))
+    print()
 
 print(f"\nSum of probabilities: {sum(pi_numerical):.10f}")
 
@@ -44,9 +52,15 @@ print("Computing expected distances...")
 expected_distances = compute_distance_expectations(states, pi, 3)
 
 # Evaluate numerically
-E_d12 = float(expected_distances[(1, 2)].subs({m: m_val, alpha: alpha_val}).n())
-E_d13 = float(expected_distances[(1, 3)].subs({m: m_val, alpha: alpha_val}).n())
-E_d23 = float(expected_distances[(2, 3)].subs({m: m_val, alpha: alpha_val}).n())
+try:
+    E_d12 = complex(expected_distances[(1, 2)].subs({m: m_val, alpha: alpha_val}).n()).real
+    E_d13 = complex(expected_distances[(1, 3)].subs({m: m_val, alpha: alpha_val}).n()).real
+    E_d23 = complex(expected_distances[(2, 3)].subs({m: m_val, alpha: alpha_val}).n()).real
+except Exception as e:
+    print(f"Error evaluating distances: {e}")
+    import traceback
+    traceback.print_exc()
+    E_d12 = E_d13 = E_d23 = float('nan')
 
 print(f"\nE[d_12] = {E_d12:.10f}")
 print(f"E[d_13] = {E_d13:.10f}")
