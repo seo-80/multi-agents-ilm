@@ -51,9 +51,22 @@ def solve_distance_inequality(expr1: sympy.Expr, expr2: sympy.Expr,
     print("\nAttempting to solve symbolically...")
 
     try:
+        # Extract actual symbols from the expression
+        free_syms = diff.free_symbols
+        m_sym = None
+        alpha_sym = None
+        for sym in free_syms:
+            if str(sym) == 'm':
+                m_sym = sym
+            elif str(sym) == 'alpha':
+                alpha_sym = sym
+
+        if m_sym is None or alpha_sym is None:
+            print(f"Warning: Could not find m and alpha symbols. Found: {free_syms}")
+            return None
+
         # Try to solve the inequality
-        m, alpha = symbols('m alpha', real=True, positive=True)
-        solution = sympy.solve(ineq, (m, alpha))
+        solution = sympy.solve(ineq, (m_sym, alpha_sym))
         print("Solution found!")
         return solution
     except Exception as e:
@@ -65,46 +78,89 @@ def solve_distance_inequality(expr1: sympy.Expr, expr2: sympy.Expr,
 def analyze_inequality_numerically(expr1: sympy.Expr, expr2: sympy.Expr,
                                    m_range: Tuple[float, float] = (0.01, 0.99),
                                    alpha_range: Tuple[float, float] = (0.01, 100.0),
-                                   grid_size: int = 100) -> Dict:
+                                   grid_size: int = 100,
+                                   use_exponential_grid: bool = True) -> Dict:
     """
     Numerically analyze where expr1 > expr2 in parameter space.
 
     Args:
         expr1: First expression
         expr2: Second expression
-        m_range: Range for m parameter (min, max)
-        alpha_range: Range for alpha parameter (min, max)
-        grid_size: Number of grid points in each dimension
+        m_range: Range for m parameter (min, max) - only used if use_exponential_grid=False
+        alpha_range: Range for alpha parameter (min, max) - only used if use_exponential_grid=False
+        grid_size: Number of grid points in each dimension - only used if use_exponential_grid=False
+        use_exponential_grid: If True, use exponential grid around 1 for alpha and small values for m
 
     Returns:
         Dictionary with grid data and boolean mask where expr1 > expr2
     """
     print("\nNumerical analysis of inequality...")
-    print(f"  m range: {m_range}")
-    print(f"  α range: {alpha_range}")
-    print(f"  Grid size: {grid_size}x{grid_size}")
-
-    m, alpha = symbols('m alpha')
-
-    # Create grid
-    m_vals = np.linspace(m_range[0], m_range[1], grid_size)
-    alpha_vals = np.linspace(alpha_range[0], alpha_range[1], grid_size)
-    M, A = np.meshgrid(m_vals, alpha_vals)
 
     # Evaluate difference expr1 - expr2 on grid
     diff = expr1 - expr2
 
+    # Extract actual symbol objects from the expression
+    free_syms = diff.free_symbols
+    m_sym = None
+    alpha_sym = None
+    for sym in free_syms:
+        if str(sym) == 'm':
+            m_sym = sym
+        elif str(sym) == 'alpha':
+            alpha_sym = sym
+
+    if m_sym is None or alpha_sym is None:
+        raise ValueError(f"Could not find m and alpha symbols in expressions. Found: {free_syms}")
+
+    print(f"  Found symbols: m={m_sym}, alpha={alpha_sym}")
+
+    # Create grid
+    if use_exponential_grid:
+        # Exponential grid for detailed exploration of very small m and alpha
+        # alpha: much wider range with exponential spacing
+        alpha_powers = np.arange(-10, 6)  # -10, -9, -8, ..., 4, 5
+        alpha_vals = 2.0 ** alpha_powers  # 1/1024, 1/512, ..., 16, 32
+
+        # m: very small values with exponential spacing
+        m_powers = np.arange(0, -11, -1)  # 0, -1, -2, ..., -9, -10
+        m_vals = 2.0 ** m_powers  # 1, 1/2, 1/4, ..., 1/512, 1/1024
+
+        print(f"  Exponential grid:")
+        print(f"    α values (2^n): {alpha_vals}")
+        print(f"    m values (2^n): {m_vals}")
+        print(f"  Grid size: {len(m_vals)}x{len(alpha_vals)}")
+    else:
+        # Linear grid (original behavior)
+        m_vals = np.linspace(m_range[0], m_range[1], grid_size)
+        alpha_vals = np.linspace(alpha_range[0], alpha_range[1], grid_size)
+        print(f"  Linear grid:")
+        print(f"    m range: {m_range}")
+        print(f"    α range: {alpha_range}")
+        print(f"    Grid size: {grid_size}x{grid_size}")
+
+    M, A = np.meshgrid(m_vals, alpha_vals)
+    grid_size_actual = len(m_vals)
+
     print("  Evaluating expressions on grid...")
     diff_vals = np.zeros_like(M)
 
-    for i in range(grid_size):
-        if i % 20 == 0:
-            print(f"    Progress: {i}/{grid_size}")
-        for j in range(grid_size):
+    n_alpha = len(alpha_vals)
+    n_m = len(m_vals)
+
+    for i in range(n_alpha):
+        if n_alpha > 10 and i % max(1, n_alpha // 5) == 0:
+            print(f"    Progress: {i}/{n_alpha}")
+        for j in range(n_m):
             try:
-                val = diff.subs({m: M[i, j], alpha: A[i, j]}).n()
+                # Convert numpy floats to Python floats for sympy
+                m_val = float(M[i, j])
+                alpha_val = float(A[i, j])
+                val = diff.subs({m_sym: m_val, alpha_sym: alpha_val})
                 diff_vals[i, j] = float(val)
-            except:
+            except Exception as e:
+                # Uncomment for debugging:
+                # if i == 0 and j == 0:
+                #     print(f"    Error at first point: {e}")
                 diff_vals[i, j] = np.nan
 
     # Create boolean mask where expr1 > expr2
@@ -127,7 +183,8 @@ def plot_inequality_region(analysis_result: Dict,
                            pair1: Tuple[int, int],
                            pair2: Tuple[int, int],
                            case_name: str,
-                           output_dir: str = None):
+                           output_dir: str = None,
+                           use_log_scale: bool = True):
     """
     Plot the parameter region where E[d_pair1] > E[d_pair2].
 
@@ -137,6 +194,7 @@ def plot_inequality_region(analysis_result: Dict,
         pair2: Second agent pair (k, l)
         case_name: Case identifier
         output_dir: Output directory for plot
+        use_log_scale: If True, use log scale for both axes
     """
     # Set default output directory
     if output_dir is None:
@@ -160,11 +218,19 @@ def plot_inequality_region(analysis_result: Dict,
     ax.contour(M, A, analysis_result['diff_vals'], levels=[0],
                colors='black', linewidths=2)
 
+    # Set log scale if requested
+    if use_log_scale:
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+
     # Labels and title
     ax.set_xlabel('m (coupling strength)', fontsize=12)
     ax.set_ylabel('α (innovation parameter)', fontsize=12)
-    ax.set_title(f'Region where E[d_{{{pair1[0]},{pair1[1]}}}] > E[d_{{{pair2[0]},{pair2[1]}}}]\n'
-                 f'Case: {case_name.upper()}', fontsize=14)
+    title = f'Region where E[d_{{{pair1[0]},{pair1[1]}}}] > E[d_{{{pair2[0]},{pair2[1]}}}]\n'
+    title += f'Case: {case_name.upper()}'
+    if use_log_scale:
+        title += ' (log-log scale)'
+    ax.set_title(title, fontsize=14)
 
     # Add legend
     from matplotlib.patches import Patch
@@ -177,7 +243,7 @@ def plot_inequality_region(analysis_result: Dict,
     ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
 
     # Grid
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.3, which='both' if use_log_scale else 'major')
 
     # Save figure
     filename = f"M3_{case_name}_inequality_d{pair1[0]}{pair1[1]}_vs_d{pair2[0]}{pair2[1]}.png"
