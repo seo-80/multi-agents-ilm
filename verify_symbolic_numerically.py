@@ -19,10 +19,21 @@ results = load_results_by_case(3, "case4")
 states = results['states']
 pi = results['pi']
 
+# Get the actual symbols used in the computation
+from sympy import Symbol
+# Extract symbols from the expressions
+all_symbols = pi[0].free_symbols
+print(f"\nSymbols found in expressions: {all_symbols}")
+
+# Find m and alpha symbols
+m_symbol = [s for s in all_symbols if str(s) == 'm'][0]
+alpha_symbol = [s for s in all_symbols if str(s) == 'alpha'][0]
+
 # Parameters
-m, alpha = symbols('m alpha')
 m_val = 0.01
 alpha_val = 0.001
+
+print(f"Using symbols: m={m_symbol}, alpha={alpha_symbol}")
 
 print(f"\nEvaluating at m={m_val}, alpha={alpha_val}")
 print("="*80)
@@ -32,15 +43,22 @@ print("\nStationary distribution (numerical):")
 pi_numerical = []
 for i, state in enumerate(states):
     state_str = str(state).replace('frozenset', '').replace('(', '').replace(')', '')
-    pi_expr = pi[i].subs({m: m_val, alpha: alpha_val})
+    pi_expr = pi[i].subs({m_symbol: m_val, alpha_symbol: alpha_val})
     print(f"  State {i+1}: {state_str}")
-    print(f"    Expression: {pi_expr}")
+    # Force numerical evaluation
+    pi_val_evalf = pi_expr.evalf()
+    print(f"    Evalf result: {pi_val_evalf}")
     try:
-        pi_val = complex(pi_expr.n()).real  # Use complex then take real part
+        # Try to convert to Python float
+        if pi_val_evalf.is_real:
+            pi_val = float(pi_val_evalf)
+        else:
+            pi_val = float(pi_val_evalf.as_real_imag()[0])
         pi_numerical.append(pi_val)
         print(f"    π_{i+1} = {pi_val:.10f}")
     except Exception as e:
         print(f"    Error converting to float: {e}")
+        print(f"    Type: {type(pi_val_evalf)}")
         pi_numerical.append(float('nan'))
     print()
 
@@ -53,9 +71,13 @@ expected_distances = compute_distance_expectations(states, pi, 3)
 
 # Evaluate numerically
 try:
-    E_d12 = complex(expected_distances[(1, 2)].subs({m: m_val, alpha: alpha_val}).n()).real
-    E_d13 = complex(expected_distances[(1, 3)].subs({m: m_val, alpha: alpha_val}).n()).real
-    E_d23 = complex(expected_distances[(2, 3)].subs({m: m_val, alpha: alpha_val}).n()).real
+    E_d12_expr = expected_distances[(1, 2)].subs({m_symbol: m_val, alpha_symbol: alpha_val}).evalf()
+    E_d13_expr = expected_distances[(1, 3)].subs({m_symbol: m_val, alpha_symbol: alpha_val}).evalf()
+    E_d23_expr = expected_distances[(2, 3)].subs({m_symbol: m_val, alpha_symbol: alpha_val}).evalf()
+
+    E_d12 = float(E_d12_expr) if E_d12_expr.is_real else float(E_d12_expr.as_real_imag()[0])
+    E_d13 = float(E_d13_expr) if E_d13_expr.is_real else float(E_d13_expr.as_real_imag()[0])
+    E_d23 = float(E_d23_expr) if E_d23_expr.is_real else float(E_d23_expr.as_real_imag()[0])
 except Exception as e:
     print(f"Error evaluating distances: {e}")
     import traceback
