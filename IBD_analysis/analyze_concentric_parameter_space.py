@@ -48,14 +48,15 @@ def parameter_sweep_concentric(
 
     # m parameters (coupling strength)
     m_base=2,
-    m_powers=range(-10, 0),  # [2^-10, ..., 2^-1] = [~0.001, ..., 0.5]
+    m_powers=range(-10, 1),  # [2^-10, ..., 2^0] = [~0.001, ..., 1.0]
+    # NOTE: m must be ≤ 1 (physical constraint)
 
     # alpha parameters (innovation rate)
     alpha_base=2,
     alpha_powers=range(-15, -5),  # [2^-15, ..., 2^-6]
 
     # Model parameters
-    M_values=[3],  # Support general M, but default to 3
+    M_values=[5],  # NOTE: Concentric typically requires M ≥ 5
     cases=['case1', 'case2', 'case3', 'case4'],
     distance_methods=['nei', '1-F', '1/F'],
 
@@ -68,6 +69,14 @@ def parameter_sweep_concentric(
 ):
     """
     Sweep parameter space with exponential scaling.
+
+    Concentric distributions occur when opposite-side agents are closer to each
+    other than to the center agent.
+
+    IMPORTANT: Concentric distributions typically require:
+    - M ≥ 5 (does not occur with M=3)
+    - m ≥ 0.9 (high coupling strength, close to 1)
+    - Physical constraint: m must be ≤ 1
 
     Args:
         N_base, N_powers: N = N_base^power for power in N_powers
@@ -366,8 +375,8 @@ def main():
     # m parameters
     parser.add_argument('--m-base', type=float, default=2,
                        help='Base for m values (default: 2)')
-    parser.add_argument('--m-powers', type=str, default='-10:0',
-                       help='Range for m powers as start:stop (default: -10:0)')
+    parser.add_argument('--m-powers', type=str, default='-10:1',
+                       help='Range for m powers as start:stop (default: -10:1 for m ∈ [0.001, 1.0]). NOTE: m must be ≤ 1')
 
     # alpha parameters
     parser.add_argument('--alpha-base', type=float, default=2,
@@ -376,8 +385,8 @@ def main():
                        help='Range for alpha powers as start:stop (default: -15:-5)')
 
     # Model parameters
-    parser.add_argument('--M', type=int, nargs='+', default=[3],
-                       help='M values to test (default: 3)')
+    parser.add_argument('--M', type=int, nargs='+', default=[5],
+                       help='M values to test (default: 5). NOTE: Concentric requires M ≥ 5')
     parser.add_argument('--cases', type=str, nargs='+',
                        default=['case1', 'case2', 'case3', 'case4'],
                        help='Cases to analyze')
