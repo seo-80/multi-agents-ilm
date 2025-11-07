@@ -88,7 +88,7 @@ def evaluate_f_matrix_symbolic(M, case_name, N_val, m_val, alpha_val):
 
 
 def evaluate_f_matrix_numerical(M, case_name, N_val, m_val, alpha_val,
-                                max_iter=10000, tol=1e-10):
+                                max_iter=50000, tol=1e-6):
     """
     Compute F-matrix numerically for cases where symbolic solution unavailable.
 
