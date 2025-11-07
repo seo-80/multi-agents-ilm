@@ -61,6 +61,7 @@ def parameter_sweep_concentric(
 
     # Computation settings
     use_symbolic=True,
+    precompute_symbolic=False,
     verbose=False,
 
     # Output
@@ -77,6 +78,7 @@ def parameter_sweep_concentric(
         cases: List of case names
         distance_methods: List of distance metrics
         use_symbolic: Use symbolic solutions when available
+        precompute_symbolic: Compute and save symbolic solutions before sweep
         verbose: Print detailed progress
         output_dir: Output directory for results
 
@@ -106,6 +108,61 @@ def parameter_sweep_concentric(
         print(f"  M: {M_values}")
         print(f"  Cases: {cases}")
         print(f"  Distance methods: {distance_methods}")
+
+    # Precompute symbolic solutions if requested
+    if precompute_symbolic and use_symbolic:
+        print("\n" + "="*60)
+        print("Precomputing symbolic solutions")
+        print("="*60)
+
+        from src.f_matrix_symbolic import compute_f_matrix_stationary, save_results, get_case_name
+
+        # Check which symbolic solutions need to be computed
+        results_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results')
+
+        for M in M_values:
+            for case in cases:
+                result_file = os.path.join(results_dir, f"M{M}_{case}.pkl")
+
+                if os.path.exists(result_file):
+                    print(f"✓ M={M}, {case}: symbolic solution already exists")
+                else:
+                    print(f"⏳ M={M}, {case}: computing symbolic solution...")
+
+                    # Determine case parameters
+                    case_configs = {
+                        'case1': (False, False),
+                        'case2': (True, False),
+                        'case3': (False, True),
+                        'case4': (True, True),
+                    }
+                    center_prestige, centralized_neologism = case_configs[case]
+
+                    try:
+                        # Compute symbolic solution
+                        result = compute_f_matrix_stationary(
+                            M=M,
+                            center_prestige=center_prestige,
+                            centralized_neologism_creation=centralized_neologism,
+                            verbose=verbose
+                        )
+
+                        # Save result
+                        save_results(
+                            M=M,
+                            case_name=case,
+                            F_matrix=result['F_matrix'],
+                            metadata=result['metadata'],
+                            output_dir=results_dir
+                        )
+
+                        print(f"  ✓ Saved to {result_file}")
+                    except Exception as e:
+                        print(f"  ✗ Failed: {e}")
+                        print(f"  Will use numerical computation for M={M}, {case}")
+
+        print("="*60)
+        print("Symbolic solution precomputation complete\n")
 
     # Case configurations
     case_configs = {
@@ -388,6 +445,8 @@ def main():
     # Options
     parser.add_argument('--numerical', action='store_true',
                        help='Use numerical computation instead of symbolic')
+    parser.add_argument('--precompute-symbolic', action='store_true',
+                       help='Precompute symbolic solutions for all M values before parameter sweep')
     parser.add_argument('--output-dir', type=str,
                        default='IBD_analysis/results/concentric_analysis',
                        help='Output directory')
@@ -419,6 +478,7 @@ def main():
         cases=args.cases,
         distance_methods=args.methods,
         use_symbolic=not args.numerical,
+        precompute_symbolic=args.precompute_symbolic,
         verbose=args.verbose,
         output_dir=args.output_dir
     )
