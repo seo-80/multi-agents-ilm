@@ -452,6 +452,10 @@ def save_results(M: int, case_name: str, F_matrix: Matrix,
     print(f"Results saved to: {filepath}")
 
 
+# Global cache for loaded results to avoid redundant file I/O
+_RESULTS_CACHE = {}
+
+
 def load_results(filepath: str) -> Dict[str, Any]:
     """
     Load computation results from a pickle file.
@@ -477,6 +481,9 @@ def load_results_by_case(M: int, case_name: str, output_dir: str = None) -> Dict
     """
     Load computation results by M and case name.
 
+    Results are cached in memory to avoid redundant file I/O when the same
+    file is loaded multiple times within a single process.
+
     Args:
         M: Number of agents
         case_name: Case identifier ("case1", "case2", "case3", or "case4")
@@ -485,13 +492,41 @@ def load_results_by_case(M: int, case_name: str, output_dir: str = None) -> Dict
     Returns:
         Dictionary containing computation results
     """
+    # Determine output directory
     if output_dir is None:
         script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         output_dir = os.path.join(script_dir, "results")
 
+    # Create cache key
+    cache_key = (M, case_name, output_dir)
+
+    # Check cache first
+    if cache_key in _RESULTS_CACHE:
+        print(f"Results loaded from cache: M={M}, case={case_name}")
+        return _RESULTS_CACHE[cache_key]
+
+    # Load from file if not cached
     filename = f"M{M}_{case_name}.pkl"
     filepath = os.path.join(output_dir, filename)
-    return load_results(filepath)
+    results = load_results(filepath)
+
+    # Store in cache
+    _RESULTS_CACHE[cache_key] = results
+
+    return results
+
+
+def clear_results_cache():
+    """
+    Clear the results cache to free memory.
+
+    This is useful when processing many different cases and memory usage
+    becomes a concern.
+    """
+    global _RESULTS_CACHE
+    num_cached = len(_RESULTS_CACHE)
+    _RESULTS_CACHE.clear()
+    print(f"Cleared {num_cached} cached result(s)")
 
 
 def write_results_to_md(M: int, case_name: str, F_matrix: Matrix,

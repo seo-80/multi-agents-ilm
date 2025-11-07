@@ -10,6 +10,7 @@ from .f_matrix_symbolic import (
     load_results_by_case,
     save_results,
     get_case_name,
+    clear_results_cache,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     'load_results_by_case',
     'save_results',
     'get_case_name',
+    'clear_results_cache',
 ]
