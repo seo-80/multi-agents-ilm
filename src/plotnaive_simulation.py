@@ -1,6 +1,19 @@
+"""
+論文のモデルパラメータとコードの対応：
+- agents_count ≡ M: エージェント数
+- coupling_strength ≡ m: 相互作用の重み（interaction weight）
+- center_agent ≡ c: 中心エージェントの位置（c = (M+1)/2）
+- N_i: データプールサイズ
+- alpha_per_data ≡ α/N_i: 1データあたりの新語生成率
+- α: 新語生成パラメータ（innovation parameter）
+- μ = α/(N_i + α): 新語生成確率（mutation probability）
+"""
+
 import numpy as np
 import glob
 import os
+import matplotlib
+matplotlib.use('Agg')  # SSH経由での実行のため非インタラクティブモードに設定
 import matplotlib.pyplot as plt
 import argparse
 import scipy.stats as stats
@@ -12,30 +25,31 @@ import matplotlib.colors as colors
 from matplotlib.colors import BoundaryNorm, ListedColormap
 import itertools
 import pickle
+from config import get_data_raw_dir, get_data_fig_dir, get_data_distance_dir
 
 
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description='Language evolution analysis script')
-    
-    # Basic parameters
-    parser.add_argument('--nonzero_alpha', '-a', type=str, default='all', 
-                       choices=['evenly', 'center', 'all'], 
+
+    # Basic parameters (論文表記: M, m, c, N_i, α)
+    parser.add_argument('--nonzero_alpha', '-a', type=str, default='all',
+                       choices=['evenly', 'center', 'all'],
                        help='nonzero_alpha: "evenly", "center", or "all"')
-    parser.add_argument('--flow_type', '-f', type=str, default='all', 
-                       choices=['bidirectional', 'outward', 'all'], 
+    parser.add_argument('--flow_type', '-f', type=str, default='all',
+                       choices=['bidirectional', 'outward', 'all'],
                        help='flow_type: "bidirectional", "outward", or "all"')
-    parser.add_argument('--skip', '-s', type=int, default=0, 
+    parser.add_argument('--skip', '-s', type=int, default=0,
                        help='Number of files to skip (default: 0)')
-    parser.add_argument('--agent_id', '-i', type=int, default=0, 
+    parser.add_argument('--agent_id', '-i', type=int, default=0,
                        help='Agent ID for bar plot display (default: 0)')
-    parser.add_argument('--agents_count', '-m', type=int, default=15, 
-                       help='Number of agents (default: 15)')
-    parser.add_argument('--N_i', '-n', type=int, default=100, 
-                       help='Number of data per subpopulation (default: 100)')
-    parser.add_argument('--coupling_strength', '-c', type=float, default=0.01, 
-                       help='Coupling strength (default: 0.01)')
-    parser.add_argument('--alpha_per_data', type=float, default=0.001, help='New word generation bias')
+    parser.add_argument('--agents_count', '-m', type=int, default=15,
+                       help='Number of agents M (default: 15)')
+    parser.add_argument('--N_i', '-n', type=int, default=100,
+                       help='Data pool size N_i (default: 100)')
+    parser.add_argument('--coupling_strength', '-c', type=float, default=0.01,
+                       help='Interaction weight m (default: 0.01)')
+    parser.add_argument('--alpha_per_data', type=float, default=0.001, help='Innovation rate α/N_i')
     parser.add_argument('--recompute_mean_similarity', action='store_true',
                        help='If set, recompute mean similarity even if saved file exists')
     parser.add_argument('--clear_figure_dir', action='store_true',
@@ -62,7 +76,9 @@ def parse_arguments():
                        help='Index of the opposite-side agent (default: agents_count//2 + (agents_count//2)//2)')
     parser.add_argument('--plot_discrete_colorbar', action='store_true',
                        help='If set, add discrete colorbar to distance rank matrix heatmap')
-    
+    parser.add_argument('--skip_kde', action='store_true',
+                       help='If set, skip KDE overlay plots (useful when KDE calculation is very slow)')
+
     return parser.parse_known_args()
 
 
@@ -83,9 +99,9 @@ def get_directory_paths(flow_type, nonzero_alpha, coupling_strength, agents_coun
         raise ValueError(f"Unknown flow_type: {flow_type}")
 
     subdir = f"{flow_str}nonzero_alpha_{nonzero_alpha}_fr_{coupling_strength}_agents_{agents_count}_N_i_{N_i}_alpha_{alpha}"
-    load_dir = f"data/naive_simulation/raw/{subdir}"
-    save_dir = f"data/naive_simulation/fig/{subdir}"
-    distance_dir = f"data/naive_simulation/distance/{subdir}"
+    load_dir = os.path.join(get_data_raw_dir(), subdir)
+    save_dir = os.path.join(get_data_fig_dir(), subdir)
+    distance_dir = os.path.join(get_data_distance_dir(), subdir)
 
     return load_dir, save_dir, distance_dir
 
@@ -93,14 +109,34 @@ def get_directory_paths(flow_type, nonzero_alpha, coupling_strength, agents_coun
 def is_concentric_distribution(distance_matrix):
     """Check if the distance matrix shows a concentric distribution."""
     center = len(distance_matrix) // 2
-    
+
     for base in range(len(distance_matrix)):
         if base == center:
             continue
-        
+
         for reference in range(len(distance_matrix)):
             is_opposite_side = (base - center) * (reference - center) < 0
             if is_opposite_side and distance_matrix[base][reference] < distance_matrix[base][center]:
+                return True
+    return False
+
+
+def is_concentric_distribution_similarity(similarity_matrix):
+    """
+    Check if the similarity matrix shows a concentric distribution.
+    For similarity (higher is more similar), concentric means the opposite side
+    has higher similarity than the center.
+    """
+    center = len(similarity_matrix) // 2
+
+    for base in range(len(similarity_matrix)):
+        if base == center:
+            continue
+
+        for reference in range(len(similarity_matrix)):
+            is_opposite_side = (base - center) * (reference - center) < 0
+            # 類似度は高いほど近いので、反対側が中心より高い場合にconcentric
+            if is_opposite_side and similarity_matrix[base][reference] > similarity_matrix[base][center]:
                 return True
     return False
 
@@ -218,6 +254,65 @@ def load_similarity_data(load_dir, force_recompute=False):
 
     # 個別データも返すように変更
     return (mean_similarity_dot, mean_similarity_cosine, dot_similarities, cosine_similarities)
+
+
+def load_f_matrix_data(load_dir, force_recompute=False):
+    """
+    Load F-matrix and Nei's distance data, with caching.
+
+    F-matrix (f_matrix_*.npy) represents the IBD (Identity By Descent) probability.
+    If f_matrix files don't exist, computes from similarity_dot files (they are identical).
+    Nei's distance is computed as: D_ij = 1 - F_ij
+
+    Args:
+        load_dir: Directory containing the data files
+        force_recompute: If True, recompute even if cached files exist
+
+    Returns:
+        tuple: (mean_f_matrix, mean_nei_distance, f_matrices, nei_distances)
+               - mean_f_matrix: Time-averaged F-matrix
+               - mean_nei_distance: Time-averaged Nei's distance
+               - f_matrices: All F-matrices (or None if cached)
+               - nei_distances: All Nei's distances (or None if cached)
+    """
+    mean_f_path = os.path.join(load_dir, "mean_f_matrix.npy")
+    mean_nei_path = os.path.join(load_dir, "mean_nei_distance.npy")
+
+    # Check cache
+    if not force_recompute and os.path.exists(mean_f_path) and os.path.exists(mean_nei_path):
+        mean_f_matrix = np.load(mean_f_path)
+        mean_nei_distance = np.load(mean_nei_path)
+        print("Loaded mean F-matrix and Nei's distance from cache.")
+        return (mean_f_matrix, mean_nei_distance, None, None)
+
+    # Look for F-matrix files first
+    f_files = sorted(glob.glob(os.path.join(load_dir, "f_matrix_*.npy")),
+                     key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[2]))
+
+    if not f_files:
+        # Fall back to similarity_dot files (they are identical to F-matrix)
+        print("F-matrix files not found. Computing from similarity_dot files...")
+        f_files = sorted(glob.glob(os.path.join(load_dir, "similarity_dot_*.npy")),
+                        key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[2]))
+        if not f_files:
+            raise FileNotFoundError(f"Neither f_matrix_*.npy nor similarity_dot_*.npy found in {load_dir}")
+
+    # Load and compute mean
+    print(f"Computing mean F-matrix from {len(f_files)} files...")
+    f_matrices = np.array([np.load(f) for f in f_files])
+    mean_f_matrix = np.mean(f_matrices, axis=0)
+
+    # Compute Nei's distance: D = 1 - F
+    nei_distances = 1.0 - f_matrices
+    mean_nei_distance = 1.0 - mean_f_matrix
+
+    # Save cache
+    np.save(mean_f_path, mean_f_matrix)
+    np.save(mean_nei_path, mean_nei_distance)
+    print(f"Saved mean F-matrix to {mean_f_path}")
+    print(f"Saved mean Nei's distance to {mean_nei_path}")
+
+    return (mean_f_matrix, mean_nei_distance, f_matrices, nei_distances)
 
 
 def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suffix="",
@@ -366,7 +461,7 @@ def save_distance_data(distances, distance_dir, center_agent, opposite_agent):
     print(f"Saved distance_0_center_opposite.xlsx to {distance_dir}")
 
 
-def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agent):
+def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agent, args=None):
     """Plot comprehensive distance analysis."""
     # 正規化
     norm_factor = 2 * N_i
@@ -412,13 +507,16 @@ def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agen
         orientation='horizontal'
     )
     # KDE overlay (Beta kernel over [0,1])
-    plot_histogram_comparison(
-        distances_0_center, distances_0_opposite,
-        [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
-        ['blue', 'red'],
-        os.path.join(save_dir, 'agent_pair_distances_histogram_kde.png'),
-        overlay_kde=True, unit_max_for_beta=1.0
-    )
+    # Note: Can be very slow with large datasets
+    # Use --skip_kde flag to skip this computation
+    if args is None or not args.skip_kde:
+        plot_histogram_comparison(
+            distances_0_center, distances_0_opposite,
+            [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+            ['blue', 'red'],
+            os.path.join(save_dir, 'agent_pair_distances_histogram_kde.png'),
+            overlay_kde=True, unit_max_for_beta=1.0
+        )
     
     # Log scale histogram
     plot_histogram_comparison(
@@ -467,6 +565,16 @@ def plot_distance_analysis(distances, save_dir, N_i, center_agent, opposite_agen
     # --- Rank Matrix Heatmap ---
     # 距離行列の平均を計算
     mean_distance_matrix = distances.mean(axis=0)
+
+    # Normalize distance matrix (Manhattan distance with N_i=1 gives 0 or 2, normalize to 0 or 1)
+    mean_distance_matrix_normalized = mean_distance_matrix / norm_factor
+
+    # Save mean distance matrix as CSV
+    df_mean_distance = pd.DataFrame(mean_distance_matrix_normalized)
+    csv_path = os.path.join(save_dir, 'mean_distance_matrix.csv')
+    df_mean_distance.to_csv(csv_path, index=True)
+    print(f"Saved mean_distance_matrix.csv to {save_dir}")
+
     # 各行ごとに値が大きいほど順位が大きくなるように順位を計算（1始まり）
 
 
@@ -533,8 +641,13 @@ def plot_2d_heatmaps(distances_x, distances_y, save_dir):
         plt.close()
 
 
-def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_agent, plot_discrete_colorbar=False):
-    """Plot mean distance heatmap in the same format as plot_2d_heatmaps."""
+def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_agent, plot_discrete_colorbar=False, mean_distance_euclidean_sq=None):
+    """Plot mean distance heatmap in the same format as plot_2d_heatmaps.
+
+    Args:
+        mean_distance: E[D_Manhattan] - Mean Manhattan distance
+        mean_distance_euclidean_sq: E[D_Euclidean^2] - Mean of Euclidean distance squared (NOT E[D_Manhattan]^2)
+    """
     # 正規化
     mean_distance = mean_distance / (2 * N_i)
     extent = [0, mean_distance.shape[0], 0, mean_distance.shape[1]]
@@ -577,6 +690,56 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_a
     plt.yticks([])
     plt.savefig(os.path.join(save_dir, f"mean_distance_from_agent{agent_id}.png"), dpi=300)
     plt.close()
+
+    # Agent-specific distance plot with logarithmic fitting
+    # フィッティング: 言語距離 = ln(a·地理距離 + 1)
+    from scipy.optimize import curve_fit
+
+    geographic_dist = np.arange(mean_distance.shape[0])
+    linguistic_dist = mean_distance[agent_id]
+
+    # フィッティング関数の定義: y = ln(a*x + 1)
+    def log_model(x, a):
+        return np.log(a * x + 1)
+
+    # 初期値を設定してフィッティング実行
+    try:
+        # aの初期値は適当に設定（0.1程度）
+        popt, pcov = curve_fit(log_model, geographic_dist, linguistic_dist, p0=[0.1], bounds=(0, np.inf))
+        a = popt[0]
+
+        # フィッティング曲線の計算
+        Y_fit = log_model(geographic_dist, a)
+
+        # 決定係数 R² を計算
+        ss_res = np.sum((linguistic_dist - Y_fit) ** 2)
+        ss_tot = np.sum((linguistic_dist - np.mean(linguistic_dist)) ** 2)
+        r_squared = 1 - (ss_res / ss_tot)
+
+        # プロット
+        plt.figure(figsize=(5, 5))
+        plt.plot(geographic_dist, linguistic_dist, marker='o', label='Data')
+        plt.plot(geographic_dist, Y_fit, 'r-', linewidth=2, label=f'Fit: y=ln({a:.3f}x+1)\nR²={r_squared:.3f}')
+        plt.legend()
+        plt.xticks([])
+        plt.yticks([])
+        plt.savefig(os.path.join(save_dir, f"mean_distance_from_agent{agent_id}_with_fit.png"), dpi=300)
+        plt.close()
+
+        # フィッティングパラメータを表示
+        print(f"Logarithmic fitting for agent {agent_id}:")
+        print(f"  a = {a:.6f}")
+        print(f"  R² = {r_squared:.6f}")
+    except Exception as e:
+        print(f"Fitting failed for agent {agent_id}: {e}")
+        # フィッティングが失敗した場合はデータのみプロット
+        plt.figure(figsize=(5, 5))
+        plt.plot(geographic_dist, linguistic_dist, marker='o', label='Data')
+        plt.legend()
+        plt.xticks([])
+        plt.yticks([])
+        plt.savefig(os.path.join(save_dir, f"mean_distance_from_agent{agent_id}_with_fit.png"), dpi=300)
+        plt.close()
 
     # グラフの線を描画
     plt.figure(figsize=(5, 5))
@@ -706,6 +869,150 @@ def plot_mean_distance_analysis(mean_distance, save_dir, agent_id, N_i, center_a
         plt.savefig(os.path.join(save_dir, framed_filename), dpi=300)
         plt.close(fig)
 
+    # E[D^2]のプロット（mean_distance_euclidean_sqが提供されている場合）
+    if mean_distance_euclidean_sq is not None:
+        # 正規化（分散は(2*N_i)^2で正規化）
+        mean_distance_squared_norm = mean_distance_euclidean_sq / ((2 * N_i) ** 2)
+        extent_sq = [0, mean_distance_squared_norm.shape[0], 0, mean_distance_squared_norm.shape[1]]
+
+        # Linear scale heatmap for E[D^2]
+        plt.figure(figsize=(5, 5))
+        im_sq = plt.imshow(mean_distance_squared_norm, extent=extent_sq,
+                        cmap='Blues', aspect='equal', vmin=0, vmax=1)
+        plt.xticks([])
+        plt.yticks([])
+        plt.savefig(os.path.join(save_dir, "mean_distance_squared_heatmap_Blues_no_colorbar.png"), dpi=300)
+        plt.close()
+
+        for cmap in ['Blues', 'Reds', 'Greens', 'Blues_Reds']:
+            plt.figure(figsize=(5, 5))
+            if cmap == 'Blues_Reds':
+                custom_cmap = colors.LinearSegmentedColormap.from_list('Blues_Reds', ['blue','red'])
+                im_sq = plt.imshow(mean_distance_squared_norm, extent=extent_sq,
+                                cmap=custom_cmap, aspect='equal', vmin=0, vmax=1)
+                filename_sq = "mean_distance_squared_heatmap_Blues_Reds.png"
+            else:
+                im_sq = plt.imshow(mean_distance_squared_norm, extent=extent_sq,
+                                cmap=cmap, aspect='equal', vmin=0, vmax=1)
+                filename_sq = f"mean_distance_squared_heatmap_{cmap}.png"
+            plt.colorbar(im_sq)
+            plt.xticks([])
+            plt.yticks([])
+            plt.savefig(os.path.join(save_dir, filename_sq), dpi=300)
+            plt.close()
+
+        # Agent-specific E[D^2] plot
+        plt.figure(figsize=(5, 5))
+        plt.plot(np.arange(mean_distance_squared_norm.shape[0]), mean_distance_squared_norm[agent_id], marker='o')
+        plt.xticks([])
+        plt.yticks([])
+        plt.savefig(os.path.join(save_dir, f"mean_distance_squared_from_agent{agent_id}.png"), dpi=300)
+        plt.close()
+
+        # Rank matrix for E[D^2]
+        rank_matrix_sq = mean_distance_euclidean_sq.argsort(axis=1).argsort(axis=1) + 1
+        is_concentric_sq = is_concentric_distribution(mean_distance_euclidean_sq)
+
+        for cmap in ['Blues', 'Reds', 'Greens', 'bwr', 'Blues_Reds', 'Greys', 'White_Blue']:
+            filename_sq = f'distance_squared_rank_matrix_heatmap_{cmap}_with_border.png'
+
+            fig_sq, ax_sq = plt.subplots(figsize=(5, 5))
+
+            if cmap == 'Blues_Reds':
+                custom_cmap = colors.LinearSegmentedColormap.from_list('Blues_Reds', ['blue', 'red'])
+                im_sq = ax_sq.imshow(rank_matrix_sq, cmap=custom_cmap, aspect='equal')
+            elif cmap == 'White_Blue':
+                custom_cmap = colors.LinearSegmentedColormap.from_list('White_Blue', ['white', 'blue'])
+                im_sq = ax_sq.imshow(rank_matrix_sq, cmap=custom_cmap, aspect='equal')
+            else:
+                im_sq = ax_sq.imshow(rank_matrix_sq, cmap=cmap, aspect='equal')
+
+            ax_sq.set_xticks([])
+            ax_sq.set_yticks([])
+            rows_sq, cols_sq = rank_matrix_sq.shape
+            center_edgecolor = "black"
+            concentric_cell_edgecolor = "red"
+            if cols_sq > center_agent:
+                for i in range(rows_sq):
+                    for j in range(cols_sq):
+                        if j == center_agent and i != center_agent:
+                            rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                                fill=False,
+                                                edgecolor=center_edgecolor,
+                                                linewidth=2)
+                            ax_sq.add_patch(rect)
+
+                        if rank_matrix_sq[i, center_agent] > rank_matrix_sq[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                            rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                                fill=False,
+                                                edgecolor=concentric_cell_edgecolor,
+                                                linewidth=2)
+                            ax_sq.add_patch(rect)
+
+            plt.savefig(os.path.join(save_dir, filename_sq), dpi=300)
+
+            # Framed version for E[D^2]
+            framed_filename_sq = f'distance_squared_rank_matrix_heatmap_{cmap}_with_border_framed.png'
+            if is_concentric_sq and cmap == 'White_Blue':
+                for spine in ax_sq.spines.values():
+                    spine.set_visible(True)
+                    spine.set_linewidth(8.0)
+                    spine.set_edgecolor('black')
+
+                # 離散的なカラーバーを作成
+                unique_ranks_sq = np.unique(rank_matrix_sq)
+                num_ranks_sq = len(unique_ranks_sq)
+
+                # 離散的なカラーマップを作成
+                white_blue_colors = [(1, 1, 1), (0, 0, 1)]  # White to Blue
+                discrete_cmap_sq = colors.LinearSegmentedColormap.from_list('WhiteBlue', white_blue_colors, N=num_ranks_sq)
+
+                # 境界を設定（各順位の境界）
+                bounds_sq = np.arange(unique_ranks_sq.min() - 0.5, unique_ranks_sq.max() + 1.5, 1)
+                norm_sq = BoundaryNorm(bounds_sq, discrete_cmap_sq.N)
+
+                # 離散カラーマップでimageを再描画
+                ax_sq.clear()
+                im_discrete_sq = ax_sq.imshow(rank_matrix_sq, cmap=discrete_cmap_sq, norm=norm_sq, aspect='equal')
+                ax_sq.set_xticks([])
+                ax_sq.set_yticks([])
+
+                # 枠線を再描画
+                if cols_sq > center_agent:
+                    for i in range(rows_sq):
+                        for j in range(cols_sq):
+                            if j == center_agent and i != center_agent:
+                                rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                                    fill=False,
+                                                    edgecolor=center_edgecolor,
+                                                    linewidth=2)
+                                ax_sq.add_patch(rect)
+
+                            if rank_matrix_sq[i, center_agent] > rank_matrix_sq[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                                rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                                    fill=False,
+                                                    edgecolor=concentric_cell_edgecolor,
+                                                    linewidth=2)
+                                ax_sq.add_patch(rect)
+
+                # 枠線を再設定
+                for spine in ax_sq.spines.values():
+                    spine.set_visible(True)
+                    spine.set_linewidth(8.0)
+                    spine.set_edgecolor('black')
+
+                # 離散的なカラーバーを追加
+                if plot_discrete_colorbar:
+                    cbar_sq = plt.colorbar(im_discrete_sq, ax=ax_sq, boundaries=bounds_sq,
+                                  ticks=unique_ranks_sq, shrink=0.8, spacing='uniform')
+                    cbar_sq.set_label('Distance Squared Rank', rotation=270, labelpad=15)
+                    cbar_sq.ax.tick_params(labelsize=8)
+            else:
+                for spine in ax_sq.spines.values():
+                    spine.set_visible(False)
+            plt.savefig(os.path.join(save_dir, framed_filename_sq), dpi=300)
+            plt.close(fig_sq)
+
 
 def plot_age_analysis(save_dir):
     """Plot age analysis."""
@@ -739,7 +1046,7 @@ def plot_age_analysis(save_dir):
     plt.close()
 
 
-def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity_type, center_agent, opposite_agent):
+def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity_type, center_agent, opposite_agent, args=None):
     """Plot similarity analysis (dot product or cosine)."""
     if similarities is None or mean_similarity is None:
         return None, None
@@ -776,14 +1083,17 @@ def plot_similarity_analysis(similarities, mean_similarity, save_dir, similarity
             shift_amount=shift_amount, orientation='horizontal'
         )
         # KDE overlay (Beta kernel). For cosine, data in [0,1]; for dot, scale by data max.
-        plot_histogram_comparison(
-            similarities_0_center, similarities_0_opposite,
-            [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
-            ['blue', 'red'],
-            os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram_kde.png'),
-            shift_amount=shift_amount, overlay_kde=True,
-            unit_max_for_beta=(1.0 if similarity_type == 'cosine' else None)
-        )
+        # Note: Can be very slow with large datasets
+        # Use --skip_kde flag to skip this computation
+        if not hasattr(args, 'skip_kde') or not args.skip_kde:
+            plot_histogram_comparison(
+                similarities_0_center, similarities_0_opposite,
+                [f'Agent 0-{center_agent}', f'Agent 0-{opposite_agent}'],
+                ['blue', 'red'],
+                os.path.join(save_dir, f'agent_pair_{similarity_type}_similarities_histogram_kde.png'),
+                shift_amount=shift_amount, overlay_kde=True,
+                unit_max_for_beta=(1.0 if similarity_type == 'cosine' else None)
+            )
         
         # Individual similarities heatmap (new addition)
         plt.figure(figsize=(8, 6))
@@ -880,7 +1190,274 @@ def plot_similarity_matrix_heatmaps(mean_similarity, save_dir, similarity_type, 
                     ax.add_patch(rect)
     
     plt.savefig(os.path.join(save_dir, f'{similarity_type}_similarity_rank_matrix_heatmap_Blues_with_border.png'), dpi=300)
+
+    # 3. Framed version (same style as distance_squared)
+    # Always generate framed version regardless of concentric distribution
+    is_concentric = is_concentric_distribution_similarity(mean_similarity)
+    framed_filename = f'{similarity_type}_similarity_rank_matrix_heatmap_White_Blue_with_border_framed.png'
+
+    if True:  # Always generate (was: if is_concentric)
+        # 新しいfigureを作成
+        fig_framed, ax_framed = plt.subplots(figsize=(5, 5))
+
+        # 離散的なカラーバーを作成
+        unique_ranks = np.unique(rank_matrix)
+        num_ranks = len(unique_ranks)
+
+        # White to Blue カラーマップ
+        white_blue_colors = [(1, 1, 1), (0, 0, 1)]
+        discrete_cmap = colors.LinearSegmentedColormap.from_list('WhiteBlue', white_blue_colors, N=num_ranks)
+
+        # 境界を設定（各順位の境界）
+        bounds = np.arange(unique_ranks.min() - 0.5, unique_ranks.max() + 1.5, 1)
+        norm = BoundaryNorm(bounds, discrete_cmap.N)
+
+        # 離散カラーマップでimageを描画
+        im_discrete = ax_framed.imshow(rank_matrix, cmap=discrete_cmap, norm=norm, aspect='equal')
+        ax_framed.set_xticks([])
+        ax_framed.set_yticks([])
+
+        # 枠線を描画
+        rows, cols = rank_matrix.shape
+        center_edgecolor = "black"
+        concentric_cell_edgecolor = "red"
+        if cols > center_agent:
+            for i in range(rows):
+                for j in range(cols):
+                    # 黒い枠線（center agent列）は常に描画
+                    if j == center_agent and i != center_agent:
+                        rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                            fill=False,
+                                            edgecolor=center_edgecolor,
+                                            linewidth=2)
+                        ax_framed.add_patch(rect)
+
+                    # 類似度の場合も同じ条件: rankが大きい=類似度が低い
+                    # 赤い枠線（concentric cells）は is_concentric の時のみ描画
+                    if is_concentric and rank_matrix[i, center_agent] > rank_matrix[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                        rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                            fill=False,
+                                            edgecolor=concentric_cell_edgecolor,
+                                            linewidth=2)
+                        ax_framed.add_patch(rect)
+
+        # 外枠を追加 (only if is_concentric)
+        if is_concentric:
+            for spine in ax_framed.spines.values():
+                spine.set_visible(True)
+                spine.set_linewidth(8.0)
+                spine.set_edgecolor('black')
+
+        plt.savefig(os.path.join(save_dir, framed_filename), dpi=300)
+        plt.close(fig_framed)
+    else:
+        # concentricでない場合は枠なし
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
     plt.close(fig)
+
+
+def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, center_agent):
+    """
+    Plot F-matrix and Nei's distance heatmaps in the same style as similarity heatmaps.
+
+    This creates heatmaps visualizing:
+    1. F-matrix (IBD probability): F_ij = P(data from agent i and j are identical)
+    2. Nei's distance: D_ij = 1 - F_ij
+    3. Rank matrices with concentric distribution detection
+
+    Args:
+        mean_f_matrix: Time-averaged F-matrix (M x M)
+        mean_nei_distance: Time-averaged Nei's distance (M x M)
+        save_dir: Directory to save plots
+        N_i: Population size per agent
+        center_agent: Index of center agent for border detection
+    """
+    if mean_f_matrix is None:
+        return
+
+    # Check for concentric distribution (using Nei's distance, similar to Manhattan distance)
+    is_concentric = is_concentric_distribution(mean_nei_distance)
+
+    # ========== F-Matrix Heatmaps ==========
+    # 1. Raw F-matrix heatmap (Blues)
+    fig, ax = plt.subplots(figsize=(5, 5))
+    im = ax.imshow(mean_f_matrix, cmap='Blues', aspect='equal', vmin=0, vmax=1)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    plt.savefig(os.path.join(save_dir, 'f_matrix_heatmap_Blues.png'), dpi=300)
+    plt.close()
+
+    # 2. F-matrix rank matrix heatmap (higher F = more similar = lower rank)
+    # Assign rank 1 to the largest F value (descending order, like similarity)
+    rank_matrix_f = mean_f_matrix.argsort(axis=1)[:, ::-1].argsort(axis=1) + 1
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    im = ax.imshow(rank_matrix_f, cmap='Blues', aspect='equal')
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # Add borders
+    rows, cols = rank_matrix_f.shape
+    plt.savefig(os.path.join(save_dir, 'f_matrix_rank_matrix_heatmap_Blues.png'), dpi=300)
+
+    center_edgecolor = "black"
+    concentric_cell_edgecolor = "red"
+    if cols > center_agent:
+        for i in range(rows):
+            for j in range(cols):
+                if j == center_agent and i != center_agent:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=center_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+
+                # For F-matrix: rank > rank[center] means less similar
+                if rank_matrix_f[i, center_agent] > rank_matrix_f[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=concentric_cell_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+
+    plt.savefig(os.path.join(save_dir, 'f_matrix_rank_matrix_heatmap_Blues_with_border.png'), dpi=300)
+
+    # 3. Framed version with White-Blue colormap
+    framed_filename = 'f_matrix_rank_matrix_heatmap_White_Blue_with_border_framed.png'
+
+    # Always generate framed version
+    fig_framed, ax_framed = plt.subplots(figsize=(5, 5))
+
+    # Discrete colormap
+    unique_ranks = np.unique(rank_matrix_f)
+    num_ranks = len(unique_ranks)
+
+    # White to Blue colormap
+    white_blue_colors = [(1, 1, 1), (0, 0, 1)]
+    discrete_cmap = colors.LinearSegmentedColormap.from_list('WhiteBlue', white_blue_colors, N=num_ranks)
+
+    # Boundaries
+    bounds = np.arange(unique_ranks.min() - 0.5, unique_ranks.max() + 1.5, 1)
+    norm = BoundaryNorm(bounds, discrete_cmap.N)
+
+    # Draw with discrete colormap
+    im_discrete = ax_framed.imshow(rank_matrix_f, cmap=discrete_cmap, norm=norm, aspect='equal')
+    ax_framed.set_xticks([])
+    ax_framed.set_yticks([])
+
+    # Add borders
+    if cols > center_agent:
+        for i in range(rows):
+            for j in range(cols):
+                # Black border for center agent column (always)
+                if j == center_agent and i != center_agent:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=center_edgecolor,
+                                        linewidth=2)
+                    ax_framed.add_patch(rect)
+
+                # Red border for concentric cells (only if is_concentric)
+                if is_concentric and rank_matrix_f[i, center_agent] > rank_matrix_f[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=concentric_cell_edgecolor,
+                                        linewidth=2)
+                    ax_framed.add_patch(rect)
+
+    # Outer frame (only if is_concentric)
+    if is_concentric:
+        for spine in ax_framed.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(8.0)
+            spine.set_edgecolor('black')
+
+    plt.savefig(os.path.join(save_dir, framed_filename), dpi=300)
+    plt.close(fig_framed)
+    plt.close(fig)
+
+    # ========== Nei's Distance Heatmaps ==========
+    # Similar to F-matrix but for Nei's distance
+    # Higher Nei's distance = less similar (like Manhattan distance)
+    # Assign rank 1 to the smallest distance (ascending order)
+    rank_matrix_nei = mean_nei_distance.argsort(axis=1).argsort(axis=1) + 1
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    im = ax.imshow(rank_matrix_nei, cmap='Blues', aspect='equal')
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    rows, cols = rank_matrix_nei.shape
+    plt.savefig(os.path.join(save_dir, 'nei_distance_rank_matrix_heatmap_Blues.png'), dpi=300)
+
+    # Add borders
+    if cols > center_agent:
+        for i in range(rows):
+            for j in range(cols):
+                if j == center_agent and i != center_agent:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=center_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+
+                # For Nei's distance: rank > rank[center] means farther
+                if rank_matrix_nei[i, center_agent] > rank_matrix_nei[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=concentric_cell_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+
+    plt.savefig(os.path.join(save_dir, 'nei_distance_rank_matrix_heatmap_Blues_with_border.png'), dpi=300)
+
+    # Framed version for Nei's distance
+    framed_filename_nei = 'nei_distance_rank_matrix_heatmap_White_Blue_with_border_framed.png'
+
+    fig_framed_nei, ax_framed_nei = plt.subplots(figsize=(5, 5))
+
+    unique_ranks_nei = np.unique(rank_matrix_nei)
+    num_ranks_nei = len(unique_ranks_nei)
+
+    discrete_cmap_nei = colors.LinearSegmentedColormap.from_list('WhiteBlue', white_blue_colors, N=num_ranks_nei)
+    bounds_nei = np.arange(unique_ranks_nei.min() - 0.5, unique_ranks_nei.max() + 1.5, 1)
+    norm_nei = BoundaryNorm(bounds_nei, discrete_cmap_nei.N)
+
+    im_discrete_nei = ax_framed_nei.imshow(rank_matrix_nei, cmap=discrete_cmap_nei, norm=norm_nei, aspect='equal')
+    ax_framed_nei.set_xticks([])
+    ax_framed_nei.set_yticks([])
+
+    if cols > center_agent:
+        for i in range(rows):
+            for j in range(cols):
+                if j == center_agent and i != center_agent:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=center_edgecolor,
+                                        linewidth=2)
+                    ax_framed_nei.add_patch(rect)
+
+                if is_concentric and rank_matrix_nei[i, center_agent] > rank_matrix_nei[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=concentric_cell_edgecolor,
+                                        linewidth=2)
+                    ax_framed_nei.add_patch(rect)
+
+    if is_concentric:
+        for spine in ax_framed_nei.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(8.0)
+            spine.set_edgecolor('black')
+
+    plt.savefig(os.path.join(save_dir, framed_filename_nei), dpi=300)
+    plt.close(fig_framed_nei)
+    plt.close(fig)
+
+    print(f"✓ F-matrix and Nei's distance heatmaps saved")
+    print(f"  is_concentric: {is_concentric}")
 
 
 def perform_binomial_tests(distances_0_center, distances_0_opposite, similarities_dot_0_center, similarities_dot_0_opposite,
@@ -1266,16 +1843,23 @@ def main():
         load_dir, save_dir, distance_dir = get_directory_paths(
             ft, na, args.coupling_strength, args.agents_count, args.N_i, args.alpha_per_data
         )
+        print(load_dir)
         os.makedirs(save_dir, exist_ok=True)
         
         distance_files = sorted(glob.glob(os.path.join(load_dir, "distance_*.npy")))
+        # Exclude distance_euclidean_sq files from distance_files
+        distance_files = [f for f in distance_files if "distance_euclidean_sq" not in f]
         print(f"Number of distance files found: {len(distance_files)}")
-        
+
+        distance_euclidean_sq_files = sorted(glob.glob(os.path.join(load_dir, "distance_euclidean_sq_*.npy")))
+        print(f"Number of Euclidean squared distance files found: {len(distance_euclidean_sq_files)}")
+
         if not distance_files:
             print(f"No distance files found in {load_dir}. Skipping...")
             continue
-            
+
         distance_files = distance_files[args.skip:]
+        distance_euclidean_sq_files = distance_euclidean_sq_files[args.skip:]
         
         # Create age files proactively if requested or required by plotting
         if args.make_age_files:
@@ -1305,34 +1889,60 @@ def main():
             )
         
         mean_distance = None
+        mean_distance_euclidean_sq = None
         distances = None
+        distances_euclidean_sq = None
         if args.plot_distance:
             print(f"Loading distance data from {len(distance_files)} files...")
             # ヒストグラム生成のため個別データも読み込む
             distances = np.array([np.load(f) for f in distance_files])
             mean_distance = np.mean(distances, axis=0)
+            print(mean_distance)
             print("Distance data loaded successfully.")
-        
+
+            # ユークリッド距離の2乗を読み込み（最初から2乗で計算されたもの）
+            if len(distance_euclidean_sq_files) > 0:
+                print(f"Loading Euclidean squared distance data from {len(distance_euclidean_sq_files)} files...")
+                distances_euclidean_sq = np.array([np.load(f) for f in distance_euclidean_sq_files])
+                mean_distance_euclidean_sq = np.mean(distances_euclidean_sq, axis=0)
+                print("Euclidean squared distance data loaded successfully.")
+            else:
+                print("No Euclidean squared distance files found. Skipping Euclidean distance analysis.")
+
         if args.plot_distance and mean_distance is not None:
             # Save distance data
             if distances is not None:
                 save_distance_data(distances, distance_dir, args.center_agent, args.opposite_agent)
-            # 平均距離の分析
-            plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i, args.center_agent, args.plot_discrete_colorbar)
+            # 平均距離の分析（E[D]とE[D_euclidean^2]の両方）
+            # mean_distance_euclidean_sqが必須（マンハッタン距離の2乗とユークリッド距離の2乗は異なるため）
+            if mean_distance_euclidean_sq is None:
+                raise ValueError(
+                    f"Euclidean squared distance files not found in {load_dir}.\n"
+                    f"Please run simulation with --recompute_distance flag to generate distance_euclidean_sq_*.npy files.\n"
+                    f"Note: E[(D_Manhattan)^2] and E[D_Euclidean^2] are fundamentally different metrics."
+                )
+            plot_mean_distance_analysis(mean_distance, save_dir, args.agent_id, args.N_i, args.center_agent, args.plot_discrete_colorbar, mean_distance_euclidean_sq)
             # ヒストグラムを含む距離分析
             if distances is not None:
-                plot_distance_analysis(distances, save_dir, args.N_i, args.center_agent, args.opposite_agent)
+                plot_distance_analysis(distances, save_dir, args.N_i, args.center_agent, args.opposite_agent, args)
         
         if args.plot_age:
             plot_age_analysis(save_dir)
         
         if args.plot_similarity:
-            plot_similarity_analysis(dot_similarities, mean_similarity_dot, save_dir, 'dot', args.center_agent, args.opposite_agent)
-            plot_similarity_analysis(cosine_similarities, mean_similarity_cosine, save_dir, 'cosine', args.center_agent, args.opposite_agent)
-            
+            plot_similarity_analysis(dot_similarities, mean_similarity_dot, save_dir, 'dot', args.center_agent, args.opposite_agent, args)
+            plot_similarity_analysis(cosine_similarities, mean_similarity_cosine, save_dir, 'cosine', args.center_agent, args.opposite_agent, args)
+
             # Add similarity matrix heatmaps (similar to distance heatmaps)
             plot_similarity_matrix_heatmaps(mean_similarity_dot, save_dir, 'dot', args.N_i, args.center_agent)
             plot_similarity_matrix_heatmaps(mean_similarity_cosine, save_dir, 'cosine', args.N_i, args.center_agent)
+
+            # F-matrix and Nei's distance analysis (dot product similarity = F-matrix = IBD probability)
+            print("\n" + "="*60)
+            print("F-Matrix and Nei's Distance Analysis")
+            print("="*60)
+            mean_f_matrix, mean_nei_distance, f_matrices, nei_distances = load_f_matrix_data(load_dir, force_recompute=args.force_recompute)
+            plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, args.N_i, args.center_agent)
 
         if args.check_concentric:
             print("Checking concentric distribution patterns using memory-efficient processing...")
@@ -1401,7 +2011,7 @@ def main():
 
     if hasattr(args, 'pairwise_regression') and args.pairwise_regression:
         if not hasattr(args, 'save_dir') or not args.save_dir:
-            args.save_dir = 'data/naive_simulation/fig/pairwise_regression_heatmaps'
+            args.save_dir = os.path.join(get_data_fig_dir(), 'pairwise_regression_heatmaps')
         os.makedirs(args.save_dir, exist_ok=True)
         analyze_and_plot_by_pair(args)
 

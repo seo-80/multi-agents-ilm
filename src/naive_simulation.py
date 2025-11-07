@@ -9,6 +9,7 @@ import time
 import argparse
 
 import collections
+from config import get_data_raw_dir
 # --- コマンドライン引数の設定 ---
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Naive simulation with configurable parameters')
@@ -22,9 +23,11 @@ def parse_arguments():
     parser.add_argument('--coupling_strength', type=float, default=0.01, help='Coupling strength (m)')
     parser.add_argument('--save_interval_min', type=int, default=1000, help='Minimum save interval')
     parser.add_argument('--save_interval_max', type=int, default=2000, help='Maximum save interval')
-    parser.add_argument('--save_dir', type=str, default='data/naive_simulation/raw', help='Save directory')
+    parser.add_argument('--save_dir', type=str, default=get_data_raw_dir(), help='Save directory')
     parser.add_argument('--seed', type=int, default=0, help='Random seed for reproducibility')
     parser.add_argument('--max_t', type=int, default=1000000, help='Maximum time step')
+    parser.add_argument('--recompute_distance', action='store_true',
+                       help='Recompute distance files from existing state files without running simulation')
     return parser.parse_args()
 
 # --- パラメータ設定 ---
@@ -49,6 +52,8 @@ elif args.flow_type == "outward":
 else:
     raise ValueError("flow_type must be 'bidirectional' or 'outward'")
 network_matrix = networks.network(agents_count, args=network_args)
+print("Network matrix:")
+print(network_matrix)
 if args.nonzero_alpha == "center":
     alphas = np.zeros(agents_count, dtype=float)
     alphas[agents_count // 2] = alpha
@@ -78,9 +83,12 @@ os.makedirs(save_dir, exist_ok=True)
 # --- 突然変異率 ---
 mu = alphas / (N_i + alphas)  # 各エージェントの突然変異率
 
+print("Alphas:", alphas)
+print("Mu:", mu)
 # --- 再開用: 既存ファイルの確認 ---
 state_files = sorted(glob.glob(os.path.join(save_dir, "state_*.npy")), key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[1]))
-distance_files = sorted(glob.glob(os.path.join(save_dir, "distance_*.npy")), key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[1]))
+distance_files = sorted([f for f in glob.glob(os.path.join(save_dir, "distance_*.npy")) if "euclidean" not in f], key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[1]))
+distance_euclidean_sq_files = sorted(glob.glob(os.path.join(save_dir, "distance_euclidean_sq_*.npy")), key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[3]))
 random_state_files = sorted(glob.glob(os.path.join(save_dir, "random_state_*.pkl")), key=lambda x: int(os.path.splitext(os.path.basename(x))[0].split('_')[2]))
 
 if state_files:
@@ -119,6 +127,7 @@ else:
             state[i, j] = [0, i, j]  # [タイムステップ, エージェント番号, 何個目か]
     t = 0
     save_idx = 0
+
 # --- 距離計算関数 ---t
 
 
@@ -133,6 +142,33 @@ def calc_agent_distance(state):
             dist_ij = sum(abs(counters[i][k] - counters[j][k]) for k in all_keys)
             dist[i, j] = dist[j, i] = dist_ij
     return dist
+
+
+def calc_agent_distance_euclidean_squared(state):
+    """
+    Calculate Euclidean squared distance (L2^2) between agents.
+
+    D_ij = Σ_k (count_i(k) - count_j(k))^2
+
+    Args:
+        state: (agents_count, N_i, 3) array representing agent states
+
+    Returns:
+        dist: (agents_count, agents_count) array of squared Euclidean distances
+    """
+    agents_count, N_i, _ = state.shape
+    # 各エージェントの全データを多重集合化
+    counters = [collections.Counter([tuple(d) for d in state[i]]) for i in range(agents_count)]
+    dist = np.zeros((agents_count, agents_count), dtype=float)
+    for i in range(agents_count):
+        for j in range(i, agents_count):
+            all_keys = set(counters[i]) | set(counters[j])
+            # ユークリッド距離の2乗 (L2^2)
+            dist_ij = sum((counters[i][k] - counters[j][k])**2 for k in all_keys)
+            dist[i, j] = dist[j, i] = dist_ij
+    return dist
+
+
 def calculate_genetic_similarity(state):
     """
     state配列から、対立遺伝子（ミーム）頻度を用いて
@@ -187,6 +223,60 @@ def calculate_genetic_similarity(state):
             cosine_similarity_matrix[i, j] = cosine_similarity_matrix[j, i] = cosine_sim
 
     return dot_product_matrix, cosine_similarity_matrix
+
+# --- 距離再計算モード ---
+if args.recompute_distance:
+    print("=" * 60)
+    print("Distance & Similarity Recomputation Mode")
+    print("=" * 60)
+
+    if not state_files:
+        print(f"Error: No state files found in {save_dir}")
+        print("Cannot recompute distances without existing state files.")
+        exit(1)
+
+    print(f"Found {len(state_files)} state files")
+    print(f"Recomputing distances and similarities from existing state files...")
+
+    from tqdm import tqdm
+    for state_file in tqdm(state_files, desc="Recomputing"):
+        # ファイル名からsave_idxを抽出
+        basename = os.path.basename(state_file)
+        file_save_idx = int(os.path.splitext(basename)[0].split('_')[1])
+
+        # stateファイルを読み込み
+        state = np.load(state_file)
+
+        # マンハッタン距離を計算して保存
+        dist = calc_agent_distance(state)
+        np.save(os.path.join(save_dir, f"distance_{file_save_idx}.npy"), dist)
+
+        # ユークリッド距離の2乗を計算して保存
+        dist_euclidean_sq = calc_agent_distance_euclidean_squared(state)
+        np.save(os.path.join(save_dir, f"distance_euclidean_sq_{file_save_idx}.npy"), dist_euclidean_sq)
+
+        # 類似度（内積・コサイン類似度）を計算して保存
+        dot_sim, cosine_sim = calculate_genetic_similarity(state)
+        np.save(os.path.join(save_dir, f"similarity_dot_{file_save_idx}.npy"), dot_sim)
+        np.save(os.path.join(save_dir, f"similarity_cosine_{file_save_idx}.npy"), cosine_sim)
+
+        # F行列（= dot_sim = IBD確率）として明示的に保存
+        np.save(os.path.join(save_dir, f"f_matrix_{file_save_idx}.npy"), dot_sim)
+
+        # Nei's distanceを計算して保存 (Nei's distance = 1 - F_ij)
+        nei_distance = 1.0 - dot_sim
+        np.save(os.path.join(save_dir, f"nei_distance_{file_save_idx}.npy"), nei_distance)
+
+    print("=" * 60)
+    print("Distance & Similarity recomputation completed successfully!")
+    print(f"Manhattan distances saved to: distance_*.npy")
+    print(f"Euclidean squared distances saved to: distance_euclidean_sq_*.npy")
+    print(f"Dot product similarities saved to: similarity_dot_*.npy")
+    print(f"Cosine similarities saved to: similarity_cosine_*.npy")
+    print(f"F-matrices (IBD probability) saved to: f_matrix_*.npy")
+    print(f"Nei's distances saved to: nei_distance_*.npy")
+    print("=" * 60)
+    exit(0)
 
 # --- メインループ ---
 while True:
@@ -250,6 +340,8 @@ while True:
     np.save(os.path.join(save_dir, f"state_{save_idx}.npy"), state)
     dist = calc_agent_distance(state)
     np.save(os.path.join(save_dir, f"distance_{save_idx}.npy"), dist)
+    dist_euclidean_sq = calc_agent_distance_euclidean_squared(state)
+    np.save(os.path.join(save_dir, f"distance_euclidean_sq_{save_idx}.npy"), dist_euclidean_sq)
     with open(os.path.join(save_dir, f"random_state_{save_idx}.pkl"), "wb") as f:
         pickle.dump(np.random.get_state(), f)
     # save_idxとtの対応をcsvで保存
