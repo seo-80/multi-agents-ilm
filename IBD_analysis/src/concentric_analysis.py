@@ -61,15 +61,12 @@ def evaluate_f_matrix_symbolic(M, case_name, N_val, m_val, alpha_val):
 
     Returns:
         F_matrix: (M, M) numpy array with evaluated F values
+
+    Raises:
+        FileNotFoundError: If symbolic results for M and case_name not found
     """
     # Load symbolic results
-    try:
-        results = load_results_by_case(M, case_name)
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            f"Symbolic results for M={M}, {case_name} not found. "
-            f"Please run f_matrix_symbolic.py first to generate them."
-        )
+    results = load_results_by_case(M, case_name)
 
     F_symbolic = results['F_matrix']
 
@@ -169,8 +166,9 @@ def analyze_concentric_for_parameters(N, m, alpha, M=3,
         M: Number of agents (must be odd)
         center_prestige: Center-outward asymmetric model
         centralized_neologism_creation: Only center creates innovations
-        distance_method: '1-F', '1/F', 'nei', 'sqrt', '-log'
-        use_symbolic: If True, use symbolic solution (faster, but requires pre-computed results)
+        distance_method: '1-F', 'nei', 'sqrt', '-log'
+        use_symbolic: If True, use symbolic solution (requires pre-computed results).
+                     If False, use numerical computation.
         verbose: Print debug information
 
     Returns:
@@ -179,28 +177,22 @@ def analyze_concentric_for_parameters(N, m, alpha, M=3,
             - 'F_matrix': (M, M) array
             - 'distance_matrix': (M, M) array
             - 'parameters': dict
-            - 'method': 'symbolic' or 'numerical'
+            - 'method_used': 'symbolic' or 'numerical'
     """
     if M % 2 == 0:
         raise ValueError("M must be odd")
 
     case_name = get_case_name(center_prestige, centralized_neologism_creation)
 
-    # Try symbolic first if requested
-    method_used = 'numerical'
+    # Use symbolic or numerical based on flag
     if use_symbolic:
-        try:
-            F_matrix = evaluate_f_matrix_symbolic(M, case_name, N, m, alpha)
-            method_used = 'symbolic'
-            if verbose:
-                print(f"  Used symbolic solution for M={M}, {case_name}")
-        except FileNotFoundError:
-            if verbose:
-                print(f"  Symbolic solution not found for M={M}, {case_name}, using numerical")
-            F_matrix = evaluate_f_matrix_numerical(M, case_name, N, m, alpha)
-            method_used = 'numerical'
+        F_matrix = evaluate_f_matrix_symbolic(M, case_name, N, m, alpha)
+        method_used = 'symbolic'
+        if verbose:
+            print(f"  Used symbolic solution for M={M}, {case_name}")
     else:
         F_matrix = evaluate_f_matrix_numerical(M, case_name, N, m, alpha)
+        method_used = 'numerical'
 
     # Compute distance
     distance_matrix = compute_f_distance(F_matrix, method=distance_method)
