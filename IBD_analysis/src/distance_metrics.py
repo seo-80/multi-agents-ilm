@@ -41,9 +41,8 @@ def compute_nei_distance(F_matrix):
                 J_ii = F_matrix[i, i]
                 J_jj = F_matrix[j, j]
 
-                # Avoid log(0) and division by zero
-                numerator = max(J_ij, 1e-10)
-                denominator = max(np.sqrt(J_ii * J_jj), 1e-10)
+                numerator = J_ij
+                denominator = np.sqrt(J_ii * J_jj)
 
                 distance[i, j] = -np.log(numerator / denominator)
 
@@ -59,9 +58,6 @@ def compute_f_distance(F_matrix, method='1-F'):
         method: Distance metric to use
             '1-F': Simple complement (1 - F_ij)
                    Interprets F as similarity, distance = dissimilarity
-            '1/F': Inverse (1 / F_ij)
-                   Used in existing probability_of_identity.py
-                   Larger F → smaller distance
             'nei': Nei's genetic distance
                    Standard population genetics metric
             'sqrt': sqrt(1 - F_ij)
@@ -87,32 +83,24 @@ def compute_f_distance(F_matrix, method='1-F'):
         np.fill_diagonal(distance, 0.0)
         return distance
 
-    elif method == '1/F':
-        # Inverse: used in existing code
-        # Higher F → lower distance
-        distance = 1.0 / (F_matrix + 1e-10)
-        # Diagonal should be 1 (self-identity has F=1)
-        np.fill_diagonal(distance, 0.0)
-        return distance
-
     elif method == 'nei':
         return compute_nei_distance(F_matrix)
 
     elif method == 'sqrt':
         # Square root of dissimilarity
-        distance = np.sqrt(np.maximum(1.0 - F_matrix, 0))
+        distance = np.sqrt(1.0 - F_matrix)
         np.fill_diagonal(distance, 0.0)
         return distance
 
     elif method == '-log':
         # Additive metric: -log(F)
-        distance = -np.log(np.maximum(F_matrix, 1e-10))
+        distance = -np.log(F_matrix)
         np.fill_diagonal(distance, 0.0)
         return distance
 
     else:
         raise ValueError(f"Unknown method: {method}. "
-                        f"Choose from: '1-F', '1/F', 'nei', 'sqrt', '-log'")
+                        f"Choose from: '1-F', 'nei', 'sqrt', '-log'")
 
 
 def compare_distance_methods(F_matrix, methods=None):
@@ -127,7 +115,7 @@ def compare_distance_methods(F_matrix, methods=None):
         dict: {method_name: distance_matrix}
     """
     if methods is None:
-        methods = ['1-F', '1/F', 'nei', 'sqrt', '-log']
+        methods = ['1-F', 'nei', 'sqrt', '-log']
 
     results = {}
     for method in methods:
