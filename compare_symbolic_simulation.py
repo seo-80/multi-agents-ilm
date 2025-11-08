@@ -149,8 +149,16 @@ def load_symbolic_f_matrix(M: int, case_name: str,
     # Substitute numerical values
     F_numerical = F_symbolic.subs({m: m_val, alpha: alpha_val, N: N_val})
 
-    # Convert to numpy array
-    F_array = np.array(F_numerical.tolist(), dtype=float)
+    # Convert to numpy array - evaluate each element to float
+    M_size = F_numerical.shape[0]
+    F_array = np.zeros((M_size, M_size), dtype=float)
+
+    for i in range(M_size):
+        for j in range(M_size):
+            # Evaluate the symbolic expression to a numerical value
+            val = F_numerical[i, j]
+            # Use evalf() to evaluate, then convert to float
+            F_array[i, j] = float(val.evalf())
 
     return F_array
 
