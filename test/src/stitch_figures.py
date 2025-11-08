@@ -28,8 +28,8 @@ from PIL import Image, ImageDraw, ImageFont
 # -----------------------------
 DEFAULT_COUPLING_STRENGTHS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1]
 DEFAULT_ALPHA_PER_DATA     = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01]
-DEFAULT_N_I_LIST           = [25, 50, 100, 200, 400]
-#DEFAULT_N_I_LIST           = [24, 49, 99, 199, 399]
+#DEFAULT_N_I_LIST           = [25, 50, 100, 200, 400]
+DEFAULT_N_I_LIST           = [24, 49, 99, 199, 399]
 DEFAULT_FLOW_TYPES         = ["bidirectional", "outward"]
 DEFAULT_NONZERO_ALPHAS     = ["evenly", "center"]
 

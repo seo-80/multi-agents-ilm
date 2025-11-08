@@ -80,8 +80,6 @@ results/
 *.out
 *.err
 
-# Shell scripts
-*.sh
 
 # Ignore document drafts
 *.text

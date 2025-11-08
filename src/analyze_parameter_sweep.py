@@ -26,6 +26,8 @@ from tqdm import tqdm
 import pickle
 from scipy import stats
 import re
+import multiprocessing as mp
+from functools import partial
 
 
 # Parameter defaults (must match run_naive_simulations_parallel.sh)
@@ -75,6 +77,8 @@ def parse_arguments():
     parser.add_argument('--nonzero_alpha', type=str, default='all',
                        choices=['center', 'evenly', 'all'],
                        help='Filter by nonzero_alpha distribution')
+    parser.add_argument('--workers', type=int, default=None,
+                       help='Number of parallel workers (default: CPU count)')
 
     # Fixed parameter values (used for directory naming)
     parser.add_argument('--fixed_strength', type=float, default=DEFAULT_FIXED['strength'],
@@ -99,6 +103,21 @@ def get_subdir_name(flow_type, nonzero_alpha, strength, agents_count, N_i, alpha
     return f"{flow_prefix}nonzero_alpha_{nonzero_alpha}_fr_{strength}_agents_{agents_count}_N_i_{N_i}_alpha_{alpha}"
 
 
+def is_concentric_distribution(distance_matrix):
+    """Check if the distance matrix shows a concentric distribution (peripheral distribution)."""
+    center = len(distance_matrix) // 2
+
+    for base in range(len(distance_matrix)):
+        if base == center:
+            continue
+
+        for reference in range(len(distance_matrix)):
+            is_opposite_side = (base - center) * (reference - center) < 0
+            if is_opposite_side and distance_matrix[base][reference] < distance_matrix[base][center]:
+                return True
+    return False
+
+
 def calculate_diversity_metrics(state):
     """
     Calculate diversity metrics from state array.
@@ -120,7 +139,7 @@ def calculate_diversity_metrics(state):
     meme_counts = Counter(all_memes)
     total = sum(meme_counts.values())
 
-    # Shannon entropy
+    # Shannon entropy (全エージェント統合版)
     shannon_entropy = -sum((count/total) * np.log(count/total)
                           for count in meme_counts.values() if count > 0)
 
@@ -129,14 +148,25 @@ def calculate_diversity_metrics(state):
 
     # Per-agent diversity
     agent_diversities = []
+    agent_shannon_entropies = []
     for i in range(agents_count):
         agent_memes = [tuple(state[i, j]) for j in range(N_i)]
         agent_unique = len(set(agent_memes))
         agent_diversities.append(agent_unique / N_i)
 
+        # 各エージェントのシャノンエントロピーを計算
+        agent_meme_counts = Counter(agent_memes)
+        agent_shannon = -sum((c/N_i) * np.log(c/N_i)
+                           for c in agent_meme_counts.values() if c > 0)
+        agent_shannon_entropies.append(agent_shannon)
+
+    # 各エージェントのシャノンエントロピーをエージェント間で平均
+    shannon_entropy_per_agent = np.mean(agent_shannon_entropies)
+
     return {
         'unique_memes': len(unique_memes),
         'shannon_entropy': shannon_entropy,
+        'shannon_entropy_per_agent': shannon_entropy_per_agent,
         'simpson_diversity': simpson,
         'mean_agent_diversity': np.mean(agent_diversities),
         'std_agent_diversity': np.std(agent_diversities),
@@ -161,7 +191,7 @@ def calculate_distance_metrics(distance_matrix):
     }
 
 
-def load_and_compute_metrics(data_dir, skip=0, max_snapshots=None):
+def load_and_compute_metrics(data_dir, skip=0, max_snapshots=None, show_progress=True):
     """
     Load simulation data and compute all metrics.
 
@@ -169,9 +199,10 @@ def load_and_compute_metrics(data_dir, skip=0, max_snapshots=None):
         data_dir: Directory containing raw simulation data
         skip: Number of initial files to skip
         max_snapshots: Maximum number of snapshots to analyze
+        show_progress: Whether to show progress bar
 
     Returns:
-        dict with time series of metrics
+        dict with time series of metrics and mean distance matrix
     """
     state_files = sorted(glob.glob(os.path.join(data_dir, "state_*.npy")))
     distance_files = sorted(glob.glob(os.path.join(data_dir, "distance_*.npy")))
@@ -200,12 +231,16 @@ def load_and_compute_metrics(data_dir, skip=0, max_snapshots=None):
         'timesteps': [],
         'diversity': [],
         'distance': [],
-        'file_ids': []
+        'file_ids': [],
+        'distance_matrices': []  # Store individual distance matrices
     }
 
-    for state_file, dist_file in tqdm(zip(state_files, distance_files),
-                                      total=len(state_files),
-                                      desc=f"Processing {os.path.basename(data_dir)}"):
+    iterator = zip(state_files, distance_files)
+    if show_progress:
+        iterator = tqdm(iterator, total=len(state_files),
+                       desc=f"Processing {os.path.basename(data_dir)}")
+
+    for state_file, dist_file in iterator:
         # Extract file ID
         file_id = int(os.path.basename(state_file).split('_')[1].split('.')[0])
         t = id2t.get(file_id, 0)
@@ -222,8 +257,53 @@ def load_and_compute_metrics(data_dir, skip=0, max_snapshots=None):
         metrics['file_ids'].append(file_id)
         metrics['diversity'].append(div_metrics)
         metrics['distance'].append(dist_metrics)
+        metrics['distance_matrices'].append(distance)
+
+    # Compute mean distance matrix
+    if metrics['distance_matrices']:
+        metrics['mean_distance_matrix'] = np.mean(metrics['distance_matrices'], axis=0)
+    else:
+        metrics['mean_distance_matrix'] = None
 
     return metrics
+
+
+def process_single_simulation(args_tuple):
+    """
+    Wrapper function for parallel processing of a single simulation.
+
+    Args:
+        args_tuple: (param_value, data_dir, flow_type, nonzero_alpha, skip, max_snapshots, use_cache)
+
+    Returns:
+        tuple: (param_value, flow_type, nonzero_alpha, metrics) or None if failed
+    """
+    param_value, data_dir, flow_type, nonzero_alpha, skip, max_snapshots, use_cache = args_tuple
+
+    cache_file = os.path.join(data_dir, f"metrics_cache_skip{skip}.pkl")
+
+    if use_cache and os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'rb') as f:
+                metrics = pickle.load(f)
+            return (param_value, flow_type, nonzero_alpha, metrics)
+        except Exception as e:
+            print(f"Error loading cache from {cache_file}: {e}")
+
+    # Compute metrics
+    metrics = load_and_compute_metrics(data_dir, skip, max_snapshots, show_progress=False)
+
+    if metrics is None:
+        return None
+
+    # Save cache
+    try:
+        with open(cache_file, 'wb') as f:
+            pickle.dump(metrics, f)
+    except Exception as e:
+        print(f"Error saving cache to {cache_file}: {e}")
+
+    return (param_value, flow_type, nonzero_alpha, metrics)
 
 
 def find_simulation_dirs(base_dir, param_name, fixed_params, flow_type='all', nonzero_alpha='all'):
@@ -427,7 +507,7 @@ def plot_single_parameter(df, param_name, metric_name, output_dir):
     plt.close()
 
 
-def plot_two_parameters_heatmap(df, param1_name, param2_name, metric_name, output_dir):
+def plot_two_parameters_heatmap(df, param1_name, param2_name, metric_name, output_dir, mean_distance_matrices=None):
     """
     Create heatmap for two parameters vs metric.
 
@@ -437,12 +517,9 @@ def plot_two_parameters_heatmap(df, param1_name, param2_name, metric_name, outpu
         param2_name: Name of second parameter (columns)
         metric_name: Name of the metric
         output_dir: Output directory for plots
+        mean_distance_matrices: Dict mapping (param1_val, param2_val, flow, nza) to mean distance matrix
     """
     os.makedirs(output_dir, exist_ok=True)
-
-    # Create figure with subplots
-    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-    fig.suptitle(f'{metric_name}: {param1_name} vs {param2_name}', fontsize=16)
 
     # Match stitch_figures.py layout: rows=flow_type, cols=nonzero_alpha
     combinations = [
@@ -451,6 +528,10 @@ def plot_two_parameters_heatmap(df, param1_name, param2_name, metric_name, outpu
         ('outward', 'evenly'),        # bottom-left
         ('outward', 'center')         # bottom-right
     ]
+
+    # Create figure with subplots (without border)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    fig.suptitle(f'{metric_name}: {param1_name} vs {param2_name}', fontsize=16)
 
     for ax, (flow, nza) in zip(axes.flat, combinations):
         subset = df[(df['flow_type'] == flow) & (df['nonzero_alpha'] == nza)]
@@ -474,6 +555,52 @@ def plot_two_parameters_heatmap(df, param1_name, param2_name, metric_name, outpu
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Saved: {output_path}")
     plt.close()
+
+    # Create additional version with peripheral borders for shannon_entropy metrics
+    if metric_name in ['shannon_entropy', 'shannon_entropy_per_agent'] and mean_distance_matrices is not None:
+        fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+        fig.suptitle(f'{metric_name}: {param1_name} vs {param2_name} (Peripheral Distribution Marked)', fontsize=16)
+
+        for ax, (flow, nza) in zip(axes.flat, combinations):
+            subset = df[(df['flow_type'] == flow) & (df['nonzero_alpha'] == nza)]
+
+            if len(subset) > 0:
+                # Pivot to create matrix
+                pivot = subset.pivot(index=param1_name, columns=param2_name, values='metric_value')
+
+                # Create heatmap
+                sns.heatmap(pivot, annot=True, fmt='.3f', cmap='viridis', ax=ax, cbar_kws={'label': metric_name})
+                ax.set_title(f'{flow} / {nza}', fontsize=11)
+                ax.set_xlabel(param2_name, fontsize=12)
+                ax.set_ylabel(param1_name, fontsize=12)
+
+                # Add black borders for peripheral distribution
+                param1_values = pivot.index.values
+                param2_values = pivot.columns.values
+
+                for i, param1_val in enumerate(param1_values):
+                    for j, param2_val in enumerate(param2_values):
+                        key = (param1_val, param2_val, flow, nza)
+                        if key in mean_distance_matrices:
+                            mean_dist = mean_distance_matrices[key]
+                            if is_concentric_distribution(mean_dist):
+                                # Draw black border around this cell
+                                # Note: seaborn heatmap uses (column, row) for positioning
+                                rect = plt.Rectangle((j, i), 1, 1,
+                                                    fill=False,
+                                                    edgecolor='black',
+                                                    linewidth=3)
+                                ax.add_patch(rect)
+            else:
+                ax.text(0.5, 0.5, 'No data', ha='center', va='center', transform=ax.transAxes)
+                ax.set_title(f'{flow} / {nza}', fontsize=11)
+
+        plt.tight_layout()
+
+        output_path_bordered = os.path.join(output_dir, f'{param1_name}_{param2_name}_vs_{metric_name}_heatmap_with_peripheral_border.png')
+        plt.savefig(output_path_bordered, dpi=300, bbox_inches='tight')
+        print(f"Saved: {output_path_bordered}")
+        plt.close()
 
 
 def analyze_single_parameter(args, param_name, metric_name):
@@ -517,30 +644,32 @@ def analyze_single_parameter(args, param_name, metric_name):
     print(f"Found {len(sim_dirs)} simulation directories")
     print(f"Output directory: {param_output_dir}")
 
-    # Collect data
+    # Prepare arguments for parallel processing
+    process_args = [
+        (param_value, data_dir, flow_type, nonzero_alpha, args.skip, args.max_snapshots, args.cache)
+        for param_value, data_dir, flow_type, nonzero_alpha in sim_dirs
+    ]
+
+    # Determine number of workers
+    n_workers = args.workers if args.workers is not None else mp.cpu_count()
+    print(f"Using {n_workers} parallel workers")
+
+    # Process simulations in parallel
     data_rows = []
 
-    for param_value, data_dir, flow_type, nonzero_alpha in sim_dirs:
-        print(f"\nProcessing: {param_name}={param_value}, flow={flow_type}, nza={nonzero_alpha}")
+    with mp.Pool(processes=n_workers) as pool:
+        results = list(tqdm(
+            pool.imap(process_single_simulation, process_args),
+            total=len(process_args),
+            desc=f"Processing {param_name} simulations"
+        ))
 
-        # Check cache
-        cache_file = os.path.join(data_dir, f"metrics_cache_skip{args.skip}.pkl")
+    # Collect results
+    for result in results:
+        if result is None:
+            continue
 
-        if args.cache and os.path.exists(cache_file):
-            print(f"Loading cached metrics from {cache_file}")
-            with open(cache_file, 'rb') as f:
-                metrics = pickle.load(f)
-        else:
-            # Compute metrics
-            metrics = load_and_compute_metrics(data_dir, args.skip, args.max_snapshots)
-
-            if metrics is None:
-                continue
-
-            # Save cache
-            with open(cache_file, 'wb') as f:
-                pickle.dump(metrics, f)
-            print(f"Saved metrics cache to {cache_file}")
+        param_value, flow_type, nonzero_alpha, metrics = result
 
         # Extract specific metric
         if metric_name == 'diversity':
@@ -629,6 +758,10 @@ def analyze_two_parameters(args, param1_name, param2_name, metric_name):
 
     # Collect all simulations matching fixed parameters
     data_rows = []
+    mean_distance_matrices = {}  # Store mean distance matrices for peripheral distribution check
+
+    # First pass: collect all matching directories
+    matching_dirs = []
 
     for subdir in os.listdir(raw_base):
         full_path = os.path.join(raw_base, subdir)
@@ -707,45 +840,73 @@ def analyze_two_parameters(args, param1_name, param2_name, metric_name):
             if param2_name in DEFAULT_PARAMS and param2_val not in DEFAULT_PARAMS[param2_name]:
                 continue
 
-            # Load and compute metrics
-            cache_file = os.path.join(full_path, f"metrics_cache_skip{args.skip}.pkl")
-
-            if args.cache and os.path.exists(cache_file):
-                with open(cache_file, 'rb') as f:
-                    metrics = pickle.load(f)
-            else:
-                metrics = load_and_compute_metrics(full_path, args.skip, args.max_snapshots)
-                if metrics is None:
-                    continue
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(metrics, f)
-
-            # Extract metrics
-            if metric_name == 'diversity':
-                agg_metrics = aggregate_metrics(metrics['diversity'], 'mean')
-                for key, value in agg_metrics.items():
-                    data_rows.append({
-                        param1_name: param1_val,
-                        param2_name: param2_val,
-                        'flow_type': sim_flow,
-                        'nonzero_alpha': sim_nza,
-                        'metric_name': key,
-                        'metric_value': value
-                    })
-            elif metric_name == 'distance':
-                agg_metrics = aggregate_metrics(metrics['distance'], 'mean')
-                for key, value in agg_metrics.items():
-                    data_rows.append({
-                        param1_name: param1_val,
-                        param2_name: param2_val,
-                        'flow_type': sim_flow,
-                        'nonzero_alpha': sim_nza,
-                        'metric_name': key,
-                        'metric_value': value
-                    })
+            # Store for parallel processing
+            matching_dirs.append((param1_val, param2_val, full_path, sim_flow, sim_nza))
 
         except Exception as e:
             continue
+
+    if not matching_dirs:
+        print("No matching directories found for two-parameter analysis")
+        return
+
+    print(f"Found {len(matching_dirs)} simulation directories to process")
+
+    # Prepare arguments for parallel processing
+    # We need a different wrapper since we're returning param1_val and param2_val
+    process_args = [
+        ((param1_val, param2_val), data_dir, flow_type, nonzero_alpha, args.skip, args.max_snapshots, args.cache)
+        for param1_val, param2_val, data_dir, flow_type, nonzero_alpha in matching_dirs
+    ]
+
+    # Determine number of workers
+    n_workers = args.workers if args.workers is not None else mp.cpu_count()
+    print(f"Using {n_workers} parallel workers")
+
+    # Process simulations in parallel
+    with mp.Pool(processes=n_workers) as pool:
+        results = list(tqdm(
+            pool.imap(process_single_simulation, process_args),
+            total=len(process_args),
+            desc=f"Processing {param1_name} x {param2_name} simulations"
+        ))
+
+    # Collect results
+    for result in results:
+        if result is None:
+            continue
+
+        param_tuple, flow_type, nonzero_alpha, metrics = result
+        param1_val, param2_val = param_tuple
+
+        # Store mean distance matrix for peripheral distribution check
+        if metrics.get('mean_distance_matrix') is not None:
+            key = (param1_val, param2_val, flow_type, nonzero_alpha)
+            mean_distance_matrices[key] = metrics['mean_distance_matrix']
+
+        # Extract metrics
+        if metric_name == 'diversity':
+            agg_metrics = aggregate_metrics(metrics['diversity'], 'mean')
+            for key, value in agg_metrics.items():
+                data_rows.append({
+                    param1_name: param1_val,
+                    param2_name: param2_val,
+                    'flow_type': flow_type,
+                    'nonzero_alpha': nonzero_alpha,
+                    'metric_name': key,
+                    'metric_value': value
+                })
+        elif metric_name == 'distance':
+            agg_metrics = aggregate_metrics(metrics['distance'], 'mean')
+            for key, value in agg_metrics.items():
+                data_rows.append({
+                    param1_name: param1_val,
+                    param2_name: param2_val,
+                    'flow_type': flow_type,
+                    'nonzero_alpha': nonzero_alpha,
+                    'metric_name': key,
+                    'metric_value': value
+                })
 
     if not data_rows:
         print("No data collected for two-parameter analysis")
@@ -764,7 +925,7 @@ def analyze_two_parameters(args, param1_name, param2_name, metric_name):
     # Create heatmaps for each specific metric
     for specific_metric in df['metric_name'].unique():
         df_metric = df[df['metric_name'] == specific_metric].copy()
-        plot_two_parameters_heatmap(df_metric, param1_name, param2_name, specific_metric, param_output_dir)
+        plot_two_parameters_heatmap(df_metric, param1_name, param2_name, specific_metric, param_output_dir, mean_distance_matrices)
 
 
 def main():

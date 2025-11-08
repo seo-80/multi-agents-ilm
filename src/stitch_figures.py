@@ -22,6 +22,11 @@ import glob
 import math
 import argparse
 from PIL import Image, ImageDraw, ImageFont
+import sys
+
+# Add src directory to path for config import
+sys.path.insert(0, os.path.dirname(__file__))
+from config import get_data_fig_dir
 
 # -----------------------------
 # Defaults (aligned to your runs)
@@ -32,8 +37,9 @@ DEFAULT_ALPHA_PER_DATA     = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01]
 DEFAULT_ALPHA_PER_DATA     = [0.00025, 0.0005, 0.001, 0.002, 0.004]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100, 125, 150, 175, 200, 500, 1000]
-DEFAULT_N_I_LIST           = [25, 50, 100, 200, 400]
-#DEFAULT_N_I_LIST           = [1, 25, 50, 100, 200,  400, 800, 1000,1600]
+# DEFAULT_N_I_LIST           = [25, 50, 100, 200, 400]
+# DEFAULT_N_I_LIST           = [1, 24, 49, 99, 199, 399]
+DEFAULT_N_I_LIST           = [1, 25, 50, 100, 200,  400, 800, 1000,1600]
 DEFAULT_FLOW_TYPES         = ["bidirectional", "outward"]
 DEFAULT_NONZERO_ALPHAS     = ["evenly", "center"]
 
@@ -159,7 +165,7 @@ def build_parser():
                    help="Space reserved for top column labels.")
     p.add_argument("--label_space_left", type=int, default=160,
                    help="Space reserved for left row labels.")
-    p.add_argument("--base_dir", default="data/naive_simulation/fig",
+    p.add_argument("--base_dir", default=get_data_fig_dir(),
                    help="Root figure directory.")
     p.add_argument("--output", "-o", default="",
                    help="Output image path (default auto-generated).")
