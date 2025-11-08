@@ -22,7 +22,14 @@ import pandas as pd
 # Add IBD_analysis to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'IBD_analysis'))
 from src.f_matrix_symbolic import load_results
-from config import get_data_raw_dir
+
+# Try to import config, use default if not available
+try:
+    from config import get_data_raw_dir
+except ModuleNotFoundError:
+    def get_data_raw_dir():
+        """Default data directory fallback."""
+        return os.path.join(os.path.dirname(__file__), 'data', 'raw')
 
 
 # ============================================================================
