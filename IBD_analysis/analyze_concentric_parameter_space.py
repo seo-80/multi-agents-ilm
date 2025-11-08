@@ -57,7 +57,7 @@ def parameter_sweep_concentric(
     # Model parameters
     M_values=[3],  # Support general M, but default to 3
     cases=['case1', 'case2', 'case3', 'case4'],
-    distance_methods=['nei', '1-F', '1/F'],
+    distance_methods=['nei', '1-F'],
 
     # Computation settings
     use_symbolic=True,
@@ -138,28 +138,24 @@ def parameter_sweep_concentric(
                     }
                     center_prestige, centralized_neologism = case_configs[case]
 
-                    try:
-                        # Compute symbolic solution
-                        result = compute_f_matrix_stationary(
-                            M=M,
-                            center_prestige=center_prestige,
-                            centralized_neologism_creation=centralized_neologism,
-                            verbose=verbose
-                        )
+                    # Compute symbolic solution
+                    result = compute_f_matrix_stationary(
+                        M=M,
+                        center_prestige=center_prestige,
+                        centralized_neologism_creation=centralized_neologism,
+                        verbose=verbose
+                    )
 
-                        # Save result
-                        save_results(
-                            M=M,
-                            case_name=case,
-                            F_matrix=result['F_matrix'],
-                            metadata=result['metadata'],
-                            output_dir=results_dir
-                        )
+                    # Save result
+                    save_results(
+                        M=M,
+                        case_name=case,
+                        F_matrix=result['F_matrix'],
+                        metadata=result['metadata'],
+                        output_dir=results_dir
+                    )
 
-                        print(f"  ✓ Saved to {result_file}")
-                    except Exception as e:
-                        print(f"  ✗ Failed: {e}")
-                        print(f"  Will use numerical computation for M={M}, {case}")
+                    print(f"  ✓ Saved to {result_file}")
 
         print("="*60)
         print("Symbolic solution precomputation complete\n")
@@ -192,51 +188,31 @@ def parameter_sweep_concentric(
     ):
         center_prestige, centralized_neologism_creation = case_configs[case]
 
-        try:
-            result = analyze_concentric_for_parameters(
-                N, m, alpha, M,
-                center_prestige, centralized_neologism_creation,
-                distance_method=method,
-                use_symbolic=use_symbolic,
-                verbose=False
-            )
+        result = analyze_concentric_for_parameters(
+            N, m, alpha, M,
+            center_prestige, centralized_neologism_creation,
+            distance_method=method,
+            use_symbolic=use_symbolic,
+            verbose=False
+        )
 
-            F_mat = result['F_matrix']
+        F_mat = result['F_matrix']
 
-            results.append({
-                'N': N,
-                'm': m,
-                'alpha': alpha,
-                'M': M,
-                'case': case,
-                'distance_method': method,
-                'is_concentric': result['is_concentric'],
-                'method_used': result['method_used'],
-                # Store some F-matrix statistics
-                'F_diag_mean': np.mean(np.diag(F_mat)),
-                'F_offdiag_mean': np.mean(F_mat[~np.eye(M, dtype=bool)]),
-                'F_min': np.min(F_mat),
-                'F_max': np.max(F_mat),
-            })
-
-        except Exception as e:
-            if verbose:
-                print(f"\nError at N={N:.2e}, m={m:.2e}, α={alpha:.2e}, M={M}, {case}, {method}: {e}")
-
-            results.append({
-                'N': N,
-                'm': m,
-                'alpha': alpha,
-                'M': M,
-                'case': case,
-                'distance_method': method,
-                'is_concentric': np.nan,
-                'method_used': 'error',
-                'F_diag_mean': np.nan,
-                'F_offdiag_mean': np.nan,
-                'F_min': np.nan,
-                'F_max': np.nan,
-            })
+        results.append({
+            'N': N,
+            'm': m,
+            'alpha': alpha,
+            'M': M,
+            'case': case,
+            'distance_method': method,
+            'is_concentric': result['is_concentric'],
+            'method_used': result['method_used'],
+            # Store some F-matrix statistics
+            'F_diag_mean': np.mean(np.diag(F_mat)),
+            'F_offdiag_mean': np.mean(F_mat[~np.eye(M, dtype=bool)]),
+            'F_min': np.min(F_mat),
+            'F_max': np.max(F_mat),
+        })
 
         pbar.update(1)
 
@@ -439,7 +415,7 @@ def main():
                        default=['case1', 'case2', 'case3', 'case4'],
                        help='Cases to analyze')
     parser.add_argument('--methods', type=str, nargs='+',
-                       default=['nei', '1-F', '1/F'],
+                       default=['nei', '1-F'],
                        help='Distance methods')
 
     # Options
