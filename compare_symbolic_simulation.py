@@ -143,22 +143,20 @@ def load_symbolic_f_matrix(M: int, case_name: str,
     F_symbolic = results['F_matrix']
 
     # Get symbolic variables
-    from sympy import symbols
+    from sympy import symbols, lambdify
     m, alpha, N = symbols('m alpha N')
 
-    # Substitute numerical values
-    F_numerical = F_symbolic.subs({m: m_val, alpha: alpha_val, N: N_val})
-
-    # Convert to numpy array - evaluate each element to float
-    M_size = F_numerical.shape[0]
+    # Convert symbolic matrix to numerical using lambdify
+    # This is more robust than evalf() for complex expressions
+    M_size = F_symbolic.shape[0]
     F_array = np.zeros((M_size, M_size), dtype=float)
 
     for i in range(M_size):
         for j in range(M_size):
-            # Evaluate the symbolic expression to a numerical value
-            val = F_numerical[i, j]
-            # Use evalf() to evaluate, then convert to float
-            F_array[i, j] = float(val.evalf())
+            # Create a numerical function from symbolic expression
+            f = lambdify((N, m, alpha), F_symbolic[i, j], 'numpy')
+            # Evaluate with numerical values
+            F_array[i, j] = f(N_val, m_val, alpha_val)
 
     return F_array
 
