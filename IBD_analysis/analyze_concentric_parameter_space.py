@@ -8,6 +8,7 @@ regions where concentric distributions occur.
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 import os
 import sys
 from itertools import product
@@ -248,6 +249,9 @@ def plot_concentric_heatmaps(df, output_dir='IBD_analysis/results/concentric_ana
     - case (case1, case2, case3, case4)
     - distance_method
 
+    Each plot contains subplots for different m values (side by side).
+    Each subplot has X-axis=N, Y-axis=alpha.
+
     Args:
         df: Results DataFrame
         output_dir: Output directory
@@ -268,27 +272,27 @@ def plot_concentric_heatmaps(df, output_dir='IBD_analysis/results/concentric_ana
         if len(data) == 0:
             continue
 
-        # Get unique N values
-        N_vals = sorted(data['N'].unique())
-        n_N = len(N_vals)
+        # Get unique m values
+        m_vals = sorted(data['m'].unique())
+        n_m = len(m_vals)
 
-        if n_N == 0:
+        if n_m == 0:
             continue
 
-        # Create subplots
-        fig, axes = plt.subplots(1, n_N, figsize=(6*n_N, 5))
-        if n_N == 1:
+        # Create subplots (one for each m value)
+        fig, axes = plt.subplots(1, n_m, figsize=(6*n_m, 5))
+        if n_m == 1:
             axes = [axes]
 
-        for idx, N_val in enumerate(N_vals):
+        for idx, m_val in enumerate(m_vals):
             ax = axes[idx]
 
-            # Pivot table for heatmap (alpha vs m)
-            subset = data[data['N'] == N_val]
+            # Pivot table for heatmap (N vs alpha)
+            subset = data[data['m'] == m_val]
             pivot = subset.pivot_table(
                 values='is_concentric',
                 index='log2_alpha',  # Y-axis
-                columns='log2_m',    # X-axis
+                columns='log2_N',    # X-axis
                 aggfunc='first'
             )
 
@@ -296,8 +300,10 @@ def plot_concentric_heatmaps(df, output_dir='IBD_analysis/results/concentric_ana
                 ax.text(0.5, 0.5, 'No data', ha='center', va='center')
                 continue
 
-            # Plot heatmap
-            im = ax.imshow(pivot.values, cmap='RdYlGn', aspect='auto',
+            # Plot heatmap with discrete colormap
+            # Use discrete colors: green for 0 (not concentric), red for 1 (concentric)
+            cmap = ListedColormap(['#90EE90', '#FF6B6B'])  # Light green, light red
+            im = ax.imshow(pivot.values, cmap=cmap, aspect='auto',
                           origin='lower', vmin=0, vmax=1, interpolation='nearest')
 
             # Labels
@@ -308,12 +314,16 @@ def plot_concentric_heatmaps(df, output_dir='IBD_analysis/results/concentric_ana
             ax.set_xticklabels([f'2^{int(x)}' for x in pivot.columns], rotation=45, ha='right')
             ax.set_yticklabels([f'2^{int(y)}' for y in pivot.index])
 
-            ax.set_xlabel('m (coupling strength)')
+            ax.set_xlabel('N (population size)')
             ax.set_ylabel('α (innovation rate)')
-            ax.set_title(f'N=2^{int(np.log2(N_val))}={N_val:.0f}')
+
+            # Title with m value
+            m_log2 = int(np.log2(m_val))
+            ax.set_title(f'm=2^{m_log2}={m_val:.6f}')
 
             # Colorbar
-            cbar = plt.colorbar(im, ax=ax)
+            cbar = plt.colorbar(im, ax=ax, ticks=[0, 1])
+            cbar.set_ticklabels(['No', 'Yes'])
             cbar.set_label('is_concentric')
 
         fig.suptitle(f'M={M_val}, {case}, {method} distance', fontsize=14, y=1.02)
