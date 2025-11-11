@@ -13,6 +13,8 @@ import sys
 from itertools import product
 from tqdm import tqdm
 import argparse
+import multiprocessing as mp
+from functools import partial
 
 # Add paths
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +43,52 @@ def generate_exponential_values(base, powers):
     return [base ** p for p in powers]
 
 
+def process_single_parameter_combination(args_tuple):
+    """
+    Wrapper function for parallel processing of a single parameter combination.
+
+    Args:
+        args_tuple: (N, m, alpha, M, case, method, use_symbolic, case_configs)
+
+    Returns:
+        dict: Result dictionary with metrics, or None if failed
+    """
+    N, m, alpha, M, case, method, use_symbolic, case_configs = args_tuple
+
+    try:
+        center_prestige, centralized_neologism_creation = case_configs[case]
+
+        result = analyze_concentric_for_parameters(
+            N, m, alpha, M,
+            center_prestige, centralized_neologism_creation,
+            distance_method=method,
+            use_symbolic=use_symbolic,
+            verbose=False
+        )
+
+        F_mat = result['F_matrix']
+
+        return {
+            'N': N,
+            'm': m,
+            'alpha': alpha,
+            'M': M,
+            'case': case,
+            'distance_method': method,
+            'is_concentric': result['is_concentric'],
+            'method_used': result['method_used'],
+            # Store some F-matrix statistics
+            'F_diag_mean': np.mean(np.diag(F_mat)),
+            'F_offdiag_mean': np.mean(F_mat[~np.eye(M, dtype=bool)]),
+            'F_min': np.min(F_mat),
+            'F_max': np.max(F_mat),
+        }
+
+    except Exception as e:
+        print(f"Error processing N={N}, m={m}, alpha={alpha}, M={M}, {case}, {method}: {e}")
+        return None
+
+
 def parameter_sweep_concentric(
     # N parameters (population size)
     N_base=2,
@@ -63,6 +111,7 @@ def parameter_sweep_concentric(
     use_symbolic=True,
     precompute_symbolic=False,
     verbose=False,
+    n_workers=None,
 
     # Output
     output_dir='IBD_analysis/results/concentric_analysis'
@@ -80,6 +129,7 @@ def parameter_sweep_concentric(
         use_symbolic: Use symbolic solutions when available
         precompute_symbolic: Compute and save symbolic solutions before sweep
         verbose: Print detailed progress
+        n_workers: Number of parallel workers (default: CPU count)
         output_dir: Output directory for results
 
     Returns:
@@ -168,55 +218,40 @@ def parameter_sweep_concentric(
         'case4': (True, True),
     }
 
-    results = []
+    # Prepare arguments for parallel processing
+    process_args = [
+        (N, m, alpha, M, case, method, use_symbolic, case_configs)
+        for N, m, alpha, M, case, method in product(
+            N_values, m_values, alpha_values,
+            M_values, cases, distance_methods
+        )
+    ]
 
-    # Total combinations
-    total = len(list(product(
-        N_values, m_values, alpha_values,
-        M_values, cases, distance_methods
-    )))
+    total = len(process_args)
 
     if verbose:
         print(f"\nTotal parameter combinations: {total:,}")
+
+    # Determine number of workers
+    if n_workers is None:
+        n_workers = mp.cpu_count()
+
+    if verbose:
+        print(f"Using {n_workers} parallel workers")
         print("Starting parameter sweep...\n")
 
-    pbar = tqdm(total=total, desc="Parameter sweep", disable=not verbose)
+    # Process simulations in parallel
+    results = []
 
-    for N, m, alpha, M, case, method in product(
-        N_values, m_values, alpha_values,
-        M_values, cases, distance_methods
-    ):
-        center_prestige, centralized_neologism_creation = case_configs[case]
-
-        result = analyze_concentric_for_parameters(
-            N, m, alpha, M,
-            center_prestige, centralized_neologism_creation,
-            distance_method=method,
-            use_symbolic=use_symbolic,
-            verbose=False
-        )
-
-        F_mat = result['F_matrix']
-
-        results.append({
-            'N': N,
-            'm': m,
-            'alpha': alpha,
-            'M': M,
-            'case': case,
-            'distance_method': method,
-            'is_concentric': result['is_concentric'],
-            'method_used': result['method_used'],
-            # Store some F-matrix statistics
-            'F_diag_mean': np.mean(np.diag(F_mat)),
-            'F_offdiag_mean': np.mean(F_mat[~np.eye(M, dtype=bool)]),
-            'F_min': np.min(F_mat),
-            'F_max': np.max(F_mat),
-        })
-
-        pbar.update(1)
-
-    pbar.close()
+    with mp.Pool(processes=n_workers) as pool:
+        for result in tqdm(
+            pool.imap(process_single_parameter_combination, process_args),
+            total=total,
+            desc="Parameter sweep",
+            disable=not verbose
+        ):
+            if result is not None:
+                results.append(result)
 
     # Create DataFrame
     df = pd.DataFrame(results)
@@ -393,7 +428,7 @@ def main():
     # N parameters
     parser.add_argument('--N-base', type=float, default=2,
                        help='Base for N values (default: 2)')
-    parser.add_argument('--N-powers', type=str, default='5:11',
+    parser.add_argument('--N-powers', type=str, default='0:10',
                        help='Range for N powers as start:stop (default: 5:11 for 2^5 to 2^10)')
 
     # m parameters
@@ -405,7 +440,7 @@ def main():
     # alpha parameters
     parser.add_argument('--alpha-base', type=float, default=2,
                        help='Base for alpha values (default: 2)')
-    parser.add_argument('--alpha-powers', type=str, default='-15:-5',
+    parser.add_argument('--alpha-powers', type=str, default='-15:5',
                        help='Range for alpha powers as start:stop (default: -15:-5)')
 
     # Model parameters
@@ -423,6 +458,8 @@ def main():
                        help='Use numerical computation instead of symbolic')
     parser.add_argument('--precompute-symbolic', action='store_true',
                        help='Precompute symbolic solutions for all M values before parameter sweep')
+    parser.add_argument('--workers', type=int, default=None,
+                       help='Number of parallel workers (default: CPU count)')
     parser.add_argument('--output-dir', type=str,
                        default='IBD_analysis/results/concentric_analysis',
                        help='Output directory')
@@ -456,6 +493,7 @@ def main():
         use_symbolic=not args.numerical,
         precompute_symbolic=args.precompute_symbolic,
         verbose=args.verbose,
+        n_workers=args.workers,
         output_dir=args.output_dir
     )
 
