@@ -85,7 +85,7 @@ def evaluate_f_matrix_symbolic(M, case_name, N_val, m_val, alpha_val):
 
 
 def evaluate_f_matrix_numerical(M, case_name, N_val, m_val, alpha_val,
-                                max_iter=10000, tol=1e-10):
+                                max_iter=50000, tol=1e-8, verbose=False):
     """
     Compute F-matrix numerically for cases where symbolic solution unavailable.
 
@@ -93,8 +93,9 @@ def evaluate_f_matrix_numerical(M, case_name, N_val, m_val, alpha_val,
         M: Number of agents
         case_name: "case1", "case2", "case3", or "case4"
         N_val, m_val, alpha_val: Parameter values
-        max_iter: Maximum iterations
-        tol: Convergence tolerance
+        max_iter: Maximum iterations (default: 50000)
+        tol: Convergence tolerance (default: 1e-8)
+        verbose: Print warnings if convergence fails
 
     Returns:
         F_matrix: (M, M) numpy array
@@ -148,7 +149,8 @@ def evaluate_f_matrix_numerical(M, case_name, N_val, m_val, alpha_val,
             return f_new
         f = f_new
 
-    print(f"Warning: Did not converge within {max_iter} iterations (diff={diff:.2e})")
+    if verbose:
+        print(f"Warning: Did not converge within {max_iter} iterations (diff={diff:.2e})")
     return f
 
 
@@ -186,12 +188,19 @@ def analyze_concentric_for_parameters(N, m, alpha, M=3,
 
     # Use symbolic or numerical based on flag
     if use_symbolic:
-        F_matrix = evaluate_f_matrix_symbolic(M, case_name, N, m, alpha)
-        method_used = 'symbolic'
-        if verbose:
-            print(f"  Used symbolic solution for M={M}, {case_name}")
+        try:
+            F_matrix = evaluate_f_matrix_symbolic(M, case_name, N, m, alpha)
+            method_used = 'symbolic'
+            if verbose:
+                print(f"  Used symbolic solution for M={M}, {case_name}")
+        except FileNotFoundError:
+            # Fallback to numerical if symbolic solution not available
+            if verbose:
+                print(f"  Symbolic solution not found for M={M}, {case_name}, using numerical")
+            F_matrix = evaluate_f_matrix_numerical(M, case_name, N, m, alpha, verbose=verbose)
+            method_used = 'numerical'
     else:
-        F_matrix = evaluate_f_matrix_numerical(M, case_name, N, m, alpha)
+        F_matrix = evaluate_f_matrix_numerical(M, case_name, N, m, alpha, verbose=verbose)
         method_used = 'numerical'
 
     # Compute distance
