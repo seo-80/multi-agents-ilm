@@ -50,8 +50,8 @@ def parse_arguments():
     parser.add_argument('--coupling_strength', '-c', type=float, default=0.01,
                        help='Interaction weight m (default: 0.01)')
     parser.add_argument('--alpha_per_data', type=float, default=0.001, help='Innovation rate α/N_i')
-    parser.add_argument('--recompute_mean_similarity', action='store_true',
-                       help='If set, recompute mean similarity even if saved file exists')
+    parser.add_argument('--force_recompute', action='store_true',
+                       help='If set, force recompute cached data (similarity, F-matrix, etc.)')
     parser.add_argument('--clear_figure_dir', action='store_true',
                        help='If set, clear figure directory')
     
@@ -258,32 +258,37 @@ def load_similarity_data(load_dir, force_recompute=False):
 
 def load_f_matrix_data(load_dir, force_recompute=False):
     """
-    Load F-matrix and Nei's distance data, with caching.
+    Load F-matrix, 1-F, and Nei's distance data, with caching.
 
     F-matrix (f_matrix_*.npy) represents the IBD (Identity By Descent) probability.
     If f_matrix files don't exist, computes from similarity_dot files (they are identical).
-    Nei's distance is computed as: D_ij = 1 - F_ij
+    1-F is computed as: (1-F)_ij = 1 - F_ij
+    Nei's distance is computed as: D_ij = -ln(F_ij / sqrt(F_ii * F_jj))
 
     Args:
         load_dir: Directory containing the data files
         force_recompute: If True, recompute even if cached files exist
 
     Returns:
-        tuple: (mean_f_matrix, mean_nei_distance, f_matrices, nei_distances)
+        tuple: (mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances, nei_distances)
                - mean_f_matrix: Time-averaged F-matrix
+               - mean_one_minus_f: Time-averaged 1-F
                - mean_nei_distance: Time-averaged Nei's distance
                - f_matrices: All F-matrices (or None if cached)
+               - one_minus_f_distances: All 1-F values (or None if cached)
                - nei_distances: All Nei's distances (or None if cached)
     """
     mean_f_path = os.path.join(load_dir, "mean_f_matrix.npy")
+    mean_one_minus_f_path = os.path.join(load_dir, "mean_one_minus_f.npy")
     mean_nei_path = os.path.join(load_dir, "mean_nei_distance.npy")
 
     # Check cache
-    if not force_recompute and os.path.exists(mean_f_path) and os.path.exists(mean_nei_path):
+    if not force_recompute and os.path.exists(mean_f_path) and os.path.exists(mean_one_minus_f_path) and os.path.exists(mean_nei_path):
         mean_f_matrix = np.load(mean_f_path)
+        mean_one_minus_f = np.load(mean_one_minus_f_path)
         mean_nei_distance = np.load(mean_nei_path)
-        print("Loaded mean F-matrix and Nei's distance from cache.")
-        return (mean_f_matrix, mean_nei_distance, None, None)
+        print("Loaded mean F-matrix, 1-F, and Nei's distance from cache.")
+        return (mean_f_matrix, mean_one_minus_f, mean_nei_distance, None, None, None)
 
     # Look for F-matrix files first
     f_files = sorted(glob.glob(os.path.join(load_dir, "f_matrix_*.npy")),
@@ -302,17 +307,37 @@ def load_f_matrix_data(load_dir, force_recompute=False):
     f_matrices = np.array([np.load(f) for f in f_files])
     mean_f_matrix = np.mean(f_matrices, axis=0)
 
-    # Compute Nei's distance: D = 1 - F
-    nei_distances = 1.0 - f_matrices
-    mean_nei_distance = 1.0 - mean_f_matrix
+    # Compute 1-F
+    one_minus_f_distances = 1.0 - f_matrices
+    mean_one_minus_f = 1.0 - mean_f_matrix
+
+    # Compute Nei's distance: D_ij = -ln(F_ij / sqrt(F_ii * F_jj))
+    # First compute for all time steps
+    nei_distances = np.zeros_like(f_matrices)
+    for t in range(len(f_matrices)):
+        f_diag = np.diag(f_matrices[t]).copy()
+        # Avoid division by zero and log of zero/negative
+        denominator = np.sqrt(np.outer(f_diag, f_diag))
+        ratio = np.divide(f_matrices[t], denominator, where=denominator > 0, out=np.ones_like(f_matrices[t]))
+        ratio = np.clip(ratio, 1e-10, None)  # Avoid log(0)
+        nei_distances[t] = -np.log(ratio)
+
+    # Compute mean Nei's distance
+    mean_f_diag = np.diag(mean_f_matrix).copy()
+    mean_denominator = np.sqrt(np.outer(mean_f_diag, mean_f_diag))
+    mean_ratio = np.divide(mean_f_matrix, mean_denominator, where=mean_denominator > 0, out=np.ones_like(mean_f_matrix))
+    mean_ratio = np.clip(mean_ratio, 1e-10, None)
+    mean_nei_distance = -np.log(mean_ratio)
 
     # Save cache
     np.save(mean_f_path, mean_f_matrix)
+    np.save(mean_one_minus_f_path, mean_one_minus_f)
     np.save(mean_nei_path, mean_nei_distance)
     print(f"Saved mean F-matrix to {mean_f_path}")
+    print(f"Saved mean 1-F to {mean_one_minus_f_path}")
     print(f"Saved mean Nei's distance to {mean_nei_path}")
 
-    return (mean_f_matrix, mean_nei_distance, f_matrices, nei_distances)
+    return (mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances, nei_distances)
 
 
 def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suffix="",
@@ -1258,17 +1283,19 @@ def plot_similarity_matrix_heatmaps(mean_similarity, save_dir, similarity_type, 
     plt.close(fig)
 
 
-def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, center_agent):
+def plot_f_matrix_heatmaps(mean_f_matrix, mean_one_minus_f, mean_nei_distance, save_dir, N_i, center_agent):
     """
-    Plot F-matrix and Nei's distance heatmaps in the same style as similarity heatmaps.
+    Plot F-matrix, 1-F, and Nei's distance heatmaps in the same style as similarity heatmaps.
 
     This creates heatmaps visualizing:
     1. F-matrix (IBD probability): F_ij = P(data from agent i and j are identical)
-    2. Nei's distance: D_ij = 1 - F_ij
-    3. Rank matrices with concentric distribution detection
+    2. 1-F: (1-F)_ij = 1 - F_ij
+    3. Nei's distance: D_ij = -ln(F_ij / sqrt(F_ii * F_jj))
+    4. Rank matrices with concentric distribution detection
 
     Args:
         mean_f_matrix: Time-averaged F-matrix (M x M)
+        mean_one_minus_f: Time-averaged 1-F (M x M)
         mean_nei_distance: Time-averaged Nei's distance (M x M)
         save_dir: Directory to save plots
         N_i: Population size per agent
@@ -1277,8 +1304,12 @@ def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, cent
     if mean_f_matrix is None:
         return
 
-    # Check for concentric distribution (using Nei's distance, similar to Manhattan distance)
-    is_concentric = is_concentric_distribution(mean_nei_distance)
+    # Check for concentric distribution independently for each metric
+    # F-matrix is similarity (higher = more similar), so use similarity version
+    is_concentric_f = is_concentric_distribution_similarity(mean_f_matrix)
+    # 1-F and Nei's distance are distances (higher = less similar), so use distance version
+    is_concentric_1f = is_concentric_distribution(mean_one_minus_f)
+    is_concentric_nei = is_concentric_distribution(mean_nei_distance)
 
     # ========== F-Matrix Heatmaps ==========
     # 1. Raw F-matrix heatmap (Blues)
@@ -1359,16 +1390,16 @@ def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, cent
                                         linewidth=2)
                     ax_framed.add_patch(rect)
 
-                # Red border for concentric cells (only if is_concentric)
-                if is_concentric and rank_matrix_f[i, center_agent] > rank_matrix_f[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                # Red border for concentric cells (only if is_concentric_f)
+                if is_concentric_f and rank_matrix_f[i, center_agent] > rank_matrix_f[i, j] and (i - center_agent) * (j - center_agent) < 0:
                     rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
                                         fill=False,
                                         edgecolor=concentric_cell_edgecolor,
                                         linewidth=2)
                     ax_framed.add_patch(rect)
 
-    # Outer frame (only if is_concentric)
-    if is_concentric:
+    # Outer frame (only if is_concentric_f)
+    if is_concentric_f:
         for spine in ax_framed.spines.values():
             spine.set_visible(True)
             spine.set_linewidth(8.0)
@@ -1378,16 +1409,94 @@ def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, cent
     plt.close(fig_framed)
     plt.close(fig)
 
+    # ========== 1-F Heatmaps ==========
+    # Similar to F-matrix but for 1-F
+    # Higher 1-F = less similar (like Manhattan distance)
+    # Assign rank 1 to the smallest value (ascending order)
+    rank_matrix_one_minus_f = mean_one_minus_f.argsort(axis=1).argsort(axis=1) + 1
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    im = ax.imshow(rank_matrix_one_minus_f, cmap='Blues', aspect='equal')
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    rows, cols = rank_matrix_one_minus_f.shape
+    plt.savefig(os.path.join(save_dir, 'one_minus_f_rank_matrix_heatmap_Blues.png'), dpi=300)
+
+    # Add borders
+    if cols > center_agent:
+        for i in range(rows):
+            for j in range(cols):
+                if j == center_agent and i != center_agent:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=center_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+
+                # For 1-F: rank > rank[center] means farther
+                if rank_matrix_one_minus_f[i, center_agent] > rank_matrix_one_minus_f[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=concentric_cell_edgecolor,
+                                        linewidth=0.7)
+                    ax.add_patch(rect)
+
+    plt.savefig(os.path.join(save_dir, 'one_minus_f_rank_matrix_heatmap_Blues_with_border.png'), dpi=300)
+
+    # Framed version for 1-F
+    framed_filename_one_minus_f = 'one_minus_f_rank_matrix_heatmap_White_Blue_with_border_framed.png'
+
+    fig_framed_one_minus_f, ax_framed_one_minus_f = plt.subplots(figsize=(5, 5))
+
+    unique_ranks_one_minus_f = np.unique(rank_matrix_one_minus_f)
+    num_ranks_one_minus_f = len(unique_ranks_one_minus_f)
+
+    discrete_cmap_one_minus_f = colors.LinearSegmentedColormap.from_list('WhiteBlue', white_blue_colors, N=num_ranks_one_minus_f)
+    bounds_one_minus_f = np.arange(unique_ranks_one_minus_f.min() - 0.5, unique_ranks_one_minus_f.max() + 1.5, 1)
+    norm_one_minus_f = BoundaryNorm(bounds_one_minus_f, discrete_cmap_one_minus_f.N)
+
+    im_discrete_one_minus_f = ax_framed_one_minus_f.imshow(rank_matrix_one_minus_f, cmap=discrete_cmap_one_minus_f, norm=norm_one_minus_f, aspect='equal')
+    ax_framed_one_minus_f.set_xticks([])
+    ax_framed_one_minus_f.set_yticks([])
+
+    if cols > center_agent:
+        for i in range(rows):
+            for j in range(cols):
+                if j == center_agent and i != center_agent:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=center_edgecolor,
+                                        linewidth=2)
+                    ax_framed_one_minus_f.add_patch(rect)
+
+                if is_concentric_1f and rank_matrix_one_minus_f[i, center_agent] > rank_matrix_one_minus_f[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                    rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
+                                        fill=False,
+                                        edgecolor=concentric_cell_edgecolor,
+                                        linewidth=2)
+                    ax_framed_one_minus_f.add_patch(rect)
+
+    if is_concentric_1f:
+        for spine in ax_framed_one_minus_f.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(8.0)
+            spine.set_edgecolor('black')
+
+    plt.savefig(os.path.join(save_dir, framed_filename_one_minus_f), dpi=300)
+    plt.close(fig_framed_one_minus_f)
+    plt.close(fig)
+
     # ========== Nei's Distance Heatmaps ==========
-    # Similar to F-matrix but for Nei's distance
-    # Higher Nei's distance = less similar (like Manhattan distance)
+    # Nei's distance: D_ij = -ln(F_ij / sqrt(F_ii * F_jj))
+    # Higher Nei's distance = less similar (like genetic distance)
     # Assign rank 1 to the smallest distance (ascending order)
     rank_matrix_nei = mean_nei_distance.argsort(axis=1).argsort(axis=1) + 1
 
-    fig, ax = plt.subplots(figsize=(5, 5))
-    im = ax.imshow(rank_matrix_nei, cmap='Blues', aspect='equal')
-    ax.set_xticks([])
-    ax.set_yticks([])
+    fig_nei, ax_nei = plt.subplots(figsize=(5, 5))
+    im_nei = ax_nei.imshow(rank_matrix_nei, cmap='Blues', aspect='equal')
+    ax_nei.set_xticks([])
+    ax_nei.set_yticks([])
 
     rows, cols = rank_matrix_nei.shape
     plt.savefig(os.path.join(save_dir, 'nei_distance_rank_matrix_heatmap_Blues.png'), dpi=300)
@@ -1401,7 +1510,7 @@ def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, cent
                                         fill=False,
                                         edgecolor=center_edgecolor,
                                         linewidth=0.7)
-                    ax.add_patch(rect)
+                    ax_nei.add_patch(rect)
 
                 # For Nei's distance: rank > rank[center] means farther
                 if rank_matrix_nei[i, center_agent] > rank_matrix_nei[i, j] and (i - center_agent) * (j - center_agent) < 0:
@@ -1409,7 +1518,7 @@ def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, cent
                                         fill=False,
                                         edgecolor=concentric_cell_edgecolor,
                                         linewidth=0.7)
-                    ax.add_patch(rect)
+                    ax_nei.add_patch(rect)
 
     plt.savefig(os.path.join(save_dir, 'nei_distance_rank_matrix_heatmap_Blues_with_border.png'), dpi=300)
 
@@ -1439,14 +1548,14 @@ def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, cent
                                         linewidth=2)
                     ax_framed_nei.add_patch(rect)
 
-                if is_concentric and rank_matrix_nei[i, center_agent] > rank_matrix_nei[i, j] and (i - center_agent) * (j - center_agent) < 0:
+                if is_concentric_nei and rank_matrix_nei[i, center_agent] > rank_matrix_nei[i, j] and (i - center_agent) * (j - center_agent) < 0:
                     rect = plt.Rectangle((j - 0.5, i - 0.5), 1, 1,
                                         fill=False,
                                         edgecolor=concentric_cell_edgecolor,
                                         linewidth=2)
                     ax_framed_nei.add_patch(rect)
 
-    if is_concentric:
+    if is_concentric_nei:
         for spine in ax_framed_nei.spines.values():
             spine.set_visible(True)
             spine.set_linewidth(8.0)
@@ -1454,10 +1563,10 @@ def plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, N_i, cent
 
     plt.savefig(os.path.join(save_dir, framed_filename_nei), dpi=300)
     plt.close(fig_framed_nei)
-    plt.close(fig)
+    plt.close(fig_nei)
 
-    print(f"✓ F-matrix and Nei's distance heatmaps saved")
-    print(f"  is_concentric: {is_concentric}")
+    print(f"✓ F-matrix, 1-F, and Nei's distance heatmaps saved")
+    print(f"  is_concentric_f: {is_concentric_f}, is_concentric_1f: {is_concentric_1f}, is_concentric_nei: {is_concentric_nei}")
 
 
 def perform_binomial_tests(distances_0_center, distances_0_opposite, similarities_dot_0_center, similarities_dot_0_opposite,
@@ -1883,9 +1992,9 @@ def main():
         cosine_similarities = None
         
         if args.plot_similarity or args.check_concentric:
-            (mean_similarity_dot, mean_similarity_cosine, 
+            (mean_similarity_dot, mean_similarity_cosine,
              dot_similarities, cosine_similarities) = load_similarity_data(
-                load_dir, force_recompute=args.recompute_mean_similarity
+                load_dir, force_recompute=args.force_recompute
             )
         
         mean_distance = None
@@ -1937,12 +2046,12 @@ def main():
             plot_similarity_matrix_heatmaps(mean_similarity_dot, save_dir, 'dot', args.N_i, args.center_agent)
             plot_similarity_matrix_heatmaps(mean_similarity_cosine, save_dir, 'cosine', args.N_i, args.center_agent)
 
-            # F-matrix and Nei's distance analysis (dot product similarity = F-matrix = IBD probability)
+            # F-matrix, 1-F, and Nei's distance analysis (dot product similarity = F-matrix = IBD probability)
             print("\n" + "="*60)
-            print("F-Matrix and Nei's Distance Analysis")
+            print("F-Matrix, 1-F, and Nei's Distance Analysis")
             print("="*60)
-            mean_f_matrix, mean_nei_distance, f_matrices, nei_distances = load_f_matrix_data(load_dir, force_recompute=args.force_recompute)
-            plot_f_matrix_heatmaps(mean_f_matrix, mean_nei_distance, save_dir, args.N_i, args.center_agent)
+            mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances, nei_distances = load_f_matrix_data(load_dir, force_recompute=args.force_recompute)
+            plot_f_matrix_heatmaps(mean_f_matrix, mean_one_minus_f, mean_nei_distance, save_dir, args.N_i, args.center_agent)
 
         if args.check_concentric:
             print("Checking concentric distribution patterns using memory-efficient processing...")
