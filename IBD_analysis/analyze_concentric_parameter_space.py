@@ -8,6 +8,7 @@ regions where concentric distributions occur.
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 import os
 import sys
 from itertools import product
@@ -296,8 +297,10 @@ def plot_concentric_heatmaps(df, output_dir='IBD_analysis/results/concentric_ana
                 ax.text(0.5, 0.5, 'No data', ha='center', va='center')
                 continue
 
-            # Plot heatmap
-            im = ax.imshow(pivot.values, cmap='RdYlGn', aspect='auto',
+            # Plot heatmap with discrete colormap
+            # Use discrete colors: green for 0 (not concentric), red for 1 (concentric)
+            cmap = ListedColormap(['#90EE90', '#FF6B6B'])  # Light green, light red
+            im = ax.imshow(pivot.values, cmap=cmap, aspect='auto',
                           origin='lower', vmin=0, vmax=1, interpolation='nearest')
 
             # Labels
@@ -312,8 +315,9 @@ def plot_concentric_heatmaps(df, output_dir='IBD_analysis/results/concentric_ana
             ax.set_ylabel('α (innovation rate)')
             ax.set_title(f'N=2^{int(np.log2(N_val))}={N_val:.0f}')
 
-            # Colorbar
-            cbar = plt.colorbar(im, ax=ax)
+            # Colorbar with discrete ticks
+            cbar = plt.colorbar(im, ax=ax, ticks=[0, 1])
+            cbar.set_ticklabels(['No', 'Yes'])
             cbar.set_label('is_concentric')
 
         fig.suptitle(f'M={M_val}, {case}, {method} distance', fontsize=14, y=1.02)
