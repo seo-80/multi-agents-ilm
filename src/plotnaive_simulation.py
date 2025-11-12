@@ -270,13 +270,12 @@ def load_f_matrix_data(load_dir, force_recompute=False):
         force_recompute: If True, recompute even if cached files exist
 
     Returns:
-        tuple: (mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances, nei_distances)
+        tuple: (mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances)
                - mean_f_matrix: Time-averaged F-matrix
                - mean_one_minus_f: Time-averaged 1-F
                - mean_nei_distance: Time-averaged Nei's distance
                - f_matrices: All F-matrices (or None if cached)
                - one_minus_f_distances: All 1-F values (or None if cached)
-               - nei_distances: All Nei's distances (or None if cached)
     """
     mean_f_path = os.path.join(load_dir, "mean_f_matrix.npy")
     mean_one_minus_f_path = os.path.join(load_dir, "mean_one_minus_f.npy")
@@ -288,7 +287,7 @@ def load_f_matrix_data(load_dir, force_recompute=False):
         mean_one_minus_f = np.load(mean_one_minus_f_path)
         mean_nei_distance = np.load(mean_nei_path)
         print("Loaded mean F-matrix, 1-F, and Nei's distance from cache.")
-        return (mean_f_matrix, mean_one_minus_f, mean_nei_distance, None, None, None)
+        return (mean_f_matrix, mean_one_minus_f, mean_nei_distance, None, None)
 
     # Look for F-matrix files first
     f_files = sorted(glob.glob(os.path.join(load_dir, "f_matrix_*.npy")),
@@ -311,18 +310,7 @@ def load_f_matrix_data(load_dir, force_recompute=False):
     one_minus_f_distances = 1.0 - f_matrices
     mean_one_minus_f = 1.0 - mean_f_matrix
 
-    # Compute Nei's distance: D_ij = -ln(F_ij / sqrt(F_ii * F_jj))
-    # First compute for all time steps
-    nei_distances = np.zeros_like(f_matrices)
-    for t in range(len(f_matrices)):
-        f_diag = np.diag(f_matrices[t]).copy()
-        # Avoid division by zero and log of zero/negative
-        denominator = np.sqrt(np.outer(f_diag, f_diag))
-        ratio = np.divide(f_matrices[t], denominator, where=denominator > 0, out=np.ones_like(f_matrices[t]))
-        ratio = np.clip(ratio, 1e-10, None)  # Avoid log(0)
-        nei_distances[t] = -np.log(ratio)
-
-    # Compute mean Nei's distance
+    # Compute mean Nei's distance: D_ij = -ln(F_ij / sqrt(F_ii * F_jj))
     mean_f_diag = np.diag(mean_f_matrix).copy()
     mean_denominator = np.sqrt(np.outer(mean_f_diag, mean_f_diag))
     mean_ratio = np.divide(mean_f_matrix, mean_denominator, where=mean_denominator > 0, out=np.ones_like(mean_f_matrix))
@@ -337,7 +325,7 @@ def load_f_matrix_data(load_dir, force_recompute=False):
     print(f"Saved mean 1-F to {mean_one_minus_f_path}")
     print(f"Saved mean Nei's distance to {mean_nei_path}")
 
-    return (mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances, nei_distances)
+    return (mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances)
 
 
 def plot_histogram_comparison(data1, data2, labels, colors, save_path, title_suffix="",
@@ -2050,7 +2038,7 @@ def main():
             print("\n" + "="*60)
             print("F-Matrix, 1-F, and Nei's Distance Analysis")
             print("="*60)
-            mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances, nei_distances = load_f_matrix_data(load_dir, force_recompute=args.force_recompute)
+            mean_f_matrix, mean_one_minus_f, mean_nei_distance, f_matrices, one_minus_f_distances = load_f_matrix_data(load_dir, force_recompute=args.force_recompute)
             plot_f_matrix_heatmaps(mean_f_matrix, mean_one_minus_f, mean_nei_distance, save_dir, args.N_i, args.center_agent)
 
         if args.check_concentric:
