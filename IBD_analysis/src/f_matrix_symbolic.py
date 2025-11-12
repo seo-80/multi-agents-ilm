@@ -177,25 +177,46 @@ def identify_symmetries(M: int, center_prestige: bool) -> Dict[Tuple[int, int], 
     var_map = {}
 
     if not center_prestige:
-        # Symmetric case: use spatial symmetry
+        # Symmetric case: use spatial symmetry with proper handling of boundary effects
+        center = M // 2
+
+        def get_agent_type(idx):
+            """Determine agent type (endpoint, center, or internal)."""
+            if idx == 0 or idx == M - 1:
+                return 'end'
+            elif idx == center:
+                return 'center'
+            else:
+                return 'internal'
+
         for i in range(M):
             for j in range(M):
-                # Distance from endpoints
-                dist = abs(i - j)
-                # Position: both endpoints, both internal, or mixed
                 if i == j:
+                    # Diagonal elements
                     if i == 0 or i == M - 1:
                         var_name = 'f_end'
-                    elif i == M // 2:
+                    elif i == center:
                         var_name = 'f_center'
                     else:
                         # Use distance from center
-                        center = M // 2
                         pos = abs(i - center)
                         var_name = f'f_diag_{pos}'
                 else:
-                    # Use distance
-                    var_name = f'f_dist_{dist}'
+                    # Off-diagonal elements: consider agent types and distance
+                    type_i = get_agent_type(i)
+                    type_j = get_agent_type(j)
+                    dist = abs(i - j)
+
+                    # Normalize by left-right symmetry: map to smaller index
+                    i_norm = min(i, M - 1 - i)
+                    j_norm = min(j, M - 1 - j)
+
+                    # Ensure i_norm <= j_norm for symmetry (F[i,j] = F[j,i])
+                    if i_norm > j_norm:
+                        i_norm, j_norm = j_norm, i_norm
+
+                    # Create variable name based on normalized positions
+                    var_name = f'f_{i_norm}_{j_norm}'
                 var_map[(i, j)] = var_name
     else:
         # Asymmetric case: less symmetry
