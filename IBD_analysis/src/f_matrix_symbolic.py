@@ -17,6 +17,13 @@ In matrix form:
     G = W D F D W^T
     F_ij = G_ij (for i≠j)
     F_ii = 1/N + (1-1/N) G_ii
+
+Symmetries of the F-matrix (always hold regardless of the model):
+    1. Transpose symmetry: F_ij = F_ji
+    2. Mirror symmetry around center c = M//2: F_{c-i,c-j} = F_{c+i,c+j}
+
+These symmetries significantly reduce the number of independent variables
+in the symbolic computation.
 """
 
 import sympy
@@ -167,52 +174,53 @@ def identify_symmetries(M: int, center_prestige: bool) -> Dict[Tuple[int, int], 
     """
     Identify symmetries in the F-matrix to reduce the number of variables.
 
+    The F-matrix always has the following symmetries regardless of the model:
+    1. Transpose symmetry: F_ij = F_ji
+    2. Mirror symmetry around center: F_{c-i,c-j} = F_{c+i,c+j}
+
+    These symmetries allow us to use a canonical representative for each
+    equivalence class of matrix positions.
+
     Args:
         M: Number of agents
-        center_prestige: If True, asymmetric model; if False, symmetric
+        center_prestige: Not used (kept for backward compatibility)
 
     Returns:
         Dictionary mapping (i, j) to variable name
     """
     var_map = {}
+    center = M // 2
 
-    if not center_prestige:
-        # Symmetric case: use spatial symmetry
-        for i in range(M):
-            for j in range(M):
-                # Distance from endpoints
-                dist = abs(i - j)
-                # Position: both endpoints, both internal, or mixed
-                if i == j:
-                    if i == 0 or i == M - 1:
-                        var_name = 'f_end'
-                    elif i == M // 2:
-                        var_name = 'f_center'
-                    else:
-                        # Use distance from center
-                        center = M // 2
-                        pos = abs(i - center)
-                        var_name = f'f_diag_{pos}'
-                else:
-                    # Use distance
-                    var_name = f'f_dist_{dist}'
-                var_map[(i, j)] = var_name
-    else:
-        # Asymmetric case: less symmetry
-        for i in range(M):
-            for j in range(M):
-                if i == j:
-                    center = M // 2
-                    if i == center:
-                        var_name = 'f_center'
-                    elif i < center:
-                        var_name = f'f_diag_left_{center - i}'
-                    else:
-                        var_name = f'f_diag_right_{i - center}'
-                else:
-                    # Use ordered pair
-                    var_name = f'f_{i}_{j}'
-                var_map[(i, j)] = var_name
+    for i in range(M):
+        for j in range(M):
+            # Generate all symmetric positions under the two symmetries:
+            # 1. F_ij = F_ji (transpose)
+            # 2. F_{c-k,c-l} = F_{c+k,c+l} (mirror around center)
+            positions = [
+                (i, j),
+                (j, i),  # transpose symmetry
+                (2*center - i, 2*center - j),  # mirror symmetry
+                (2*center - j, 2*center - i),  # both symmetries
+            ]
+
+            # Keep only valid positions (within bounds [0, M))
+            valid_positions = [(x, y) for x, y in positions
+                             if 0 <= x < M and 0 <= y < M]
+
+            # Use canonical form: lexicographically smallest position
+            canonical = min(valid_positions)
+
+            # Generate variable name from canonical form
+            ci, cj = canonical
+            if ci == cj:
+                # Diagonal element: characterized by distance from center
+                dist_from_center = abs(ci - center)
+                var_name = f'f_diag_{dist_from_center}'
+            else:
+                # Off-diagonal element: use canonical (i,j) pair
+                var_name = f'f_{ci}_{cj}'
+
+            var_map[(i, j)] = var_name
 
     return var_map
 
@@ -295,6 +303,7 @@ def compute_f_matrix_stationary(M: int = 3,
     # Identify symmetries
     if verbose:
         print("Identifying symmetries in F-matrix...")
+        print("  Using: F_ij = F_ji (transpose) and F_{c-i,c-j} = F_{c+i,c+j} (mirror)")
     var_map = identify_symmetries(M, center_prestige)
 
     # Get unique variable names
