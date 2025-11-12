@@ -1,4 +1,4 @@
-#!/BIN/BASh
+#!/bin/bash
 set -euo pipefail
 
 # --- Python interpreter ---
@@ -13,12 +13,12 @@ PYTHON_SCRIPT="src/naive_simulation.py"
 
 COUPLING_STRENGTHS=(0.01)
 ALPHA_PER_DATA_LIST=(0.001)
-N_I_LIST=(99)
+N_I_LIST=(100)
 FLOW_TYPES=("outward" "bidirectional")
 NONZERO_ALPHAS=("center" "evenly")
 
-AGENTS_COUNT=7
-MAX_T=10000000
+AGENTS_COUNT=5
+MAX_T=1000000
 # MAX_T=20000000
 
 usage() {
@@ -152,7 +152,7 @@ set_parameter_values() {
   case "$param_name" in
   strength) COUPLING_STRENGTHS=(0.0025 0.005 0.01 0.02 0.04) ;;
   alpha) ALPHA_PER_DATA_LIST=(0.00025 0.0005 0.001 0.002 0.004) ;;
-  Ni) N_I_LIST=(1 25 50) ;;
+  Ni) N_I_LIST=(1 25 50 100 200 400) ;;
   *)
     echo "エラー: 無効なパラメータ名。strength | alpha | Ni" >&2
     usage
@@ -180,7 +180,7 @@ for TARGET in "${PARAMS_TO_RUN[@]}"; do
   # 既定値へ戻してから対象のみ拡張
   COUPLING_STRENGTHS=(0.01)
   ALPHA_PER_DATA_LIST=(0.001)
-  N_I_LIST=(99)
+  N_I_LIST=(100)
 
   if $PAIR_MODE; then
     # パラメータペアモード
@@ -248,6 +248,7 @@ for TARGET in "${PARAMS_TO_RUN[@]}"; do
       "--nonzero_alpha" "$nz_alpha"
       "--N_i" "$ni"
       "--agents_count" "$AGENTS_COUNT"
+      "--recompute_distance"
     )
     # アニメーションモード以外では --max_t を追加
     if ! $ANIMATION_MODE; then
