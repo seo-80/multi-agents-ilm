@@ -39,7 +39,7 @@ DEFAULT_ALPHA_PER_DATA     = [0.00025, 0.0005, 0.001, 0.002, 0.004]
 # DEFAULT_N_I_LIST           = [1, 10, 20, 50, 100, 125, 150, 175, 200, 500, 1000]
 # DEFAULT_N_I_LIST           = [25, 50, 100, 200, 400]
 # DEFAULT_N_I_LIST           = [1, 24, 49, 99, 199, 399]
-DEFAULT_N_I_LIST           = [1, 25, 50, 100, 200,  400, 800, 1000,1600]
+DEFAULT_N_I_LIST           = [1, 25, 50, 100, 200,  400]
 DEFAULT_FLOW_TYPES         = ["bidirectional", "outward"]
 DEFAULT_NONZERO_ALPHAS     = ["evenly", "center"]
 
