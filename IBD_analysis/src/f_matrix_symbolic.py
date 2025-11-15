@@ -24,6 +24,11 @@ Symmetries of the F-matrix (always hold regardless of the model):
 
 These symmetries significantly reduce the number of independent variables
 in the symbolic computation.
+
+Performance Optimization:
+    - Uses multiprocessing for parallel simplification of matrix elements
+    - Simplification of G matrix and F-matrix solutions are parallelized
+    - Number of parallel workers defaults to the number of CPU cores
 """
 
 import sympy
@@ -32,6 +37,8 @@ import os
 import pickle
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 
 # ============================================================================
@@ -167,7 +174,25 @@ def get_case_name(center_prestige: bool, centralized_neologism_creation: bool) -
 
 
 # ============================================================================
-# 2. F-Matrix Stationary State Computation
+# 2. Parallel Processing Helper Functions
+# ============================================================================
+
+def _simplify_single_element(args):
+    """
+    Helper function for parallel simplification of a single matrix element.
+
+    Args:
+        args: Tuple of (i, j, expression)
+
+    Returns:
+        Tuple of (i, j, simplified_expression)
+    """
+    i, j, expr = args
+    return (i, j, simplify(expr))
+
+
+# ============================================================================
+# 3. F-Matrix Stationary State Computation
 # ============================================================================
 
 def identify_symmetries(M: int, center_prestige: bool) -> Dict[Tuple[int, int], str]:
@@ -335,12 +360,22 @@ def compute_f_matrix_stationary(M: int = 3,
     # Simplify G (this might take time)
     if verbose:
         print("Simplifying G matrix elements...")
+        print(f"  Using parallel processing with {cpu_count()} CPU cores...")
+
+    # Prepare arguments for parallel processing
+    g_elements = [(i, j, G[i, j]) for i in range(M) for j in range(M)]
+
+    # Parallel simplification
     G_simplified = sympy.zeros(M, M)
-    for i in range(M):
-        for j in range(M):
-            if verbose and (i * M + j) % 5 == 0:
-                print(f"  Simplifying G[{i},{j}]... ({i*M+j+1}/{M*M})")
-            G_simplified[i, j] = simplify(G[i, j])
+    with Pool() as pool:
+        results = pool.map(_simplify_single_element, g_elements)
+
+    # Reconstruct G_simplified matrix from results
+    for i, j, simplified_expr in results:
+        G_simplified[i, j] = simplified_expr
+
+    if verbose:
+        print(f"  Simplified {M*M} G matrix elements")
 
     # Set up equations
     if verbose:
@@ -396,11 +431,26 @@ def compute_f_matrix_stationary(M: int = 3,
     # Build final F-matrix with solutions
     if verbose:
         print("\nSimplifying solutions...")
-    F_solution = sympy.zeros(M, M)
+        print(f"  Using parallel processing with {cpu_count()} CPU cores...")
+
+    # Prepare arguments for parallel processing
+    f_elements = []
     for i in range(M):
         for j in range(M):
             var_name = var_map[(i, j)]
-            F_solution[i, j] = simplify(solution[f_vars_dict[var_name]])
+            f_elements.append((i, j, solution[f_vars_dict[var_name]]))
+
+    # Parallel simplification
+    F_solution = sympy.zeros(M, M)
+    with Pool() as pool:
+        results = pool.map(_simplify_single_element, f_elements)
+
+    # Reconstruct F_solution matrix from results
+    for i, j, simplified_expr in results:
+        F_solution[i, j] = simplified_expr
+
+    if verbose:
+        print(f"  Simplified {M*M} solution elements")
 
     if verbose:
         print("Solution found and simplified!\n")
@@ -431,7 +481,7 @@ def compute_f_matrix_stationary(M: int = 3,
 
 
 # ============================================================================
-# 3. Output Functions
+# 4. Output Functions
 # ============================================================================
 
 def save_results(M: int, case_name: str, F_matrix: Matrix,
@@ -654,7 +704,7 @@ def write_results_to_md(M: int, case_name: str, F_matrix: Matrix,
 
 
 # ============================================================================
-# 4. Main Function
+# 5. Main Function
 # ============================================================================
 
 def main():
