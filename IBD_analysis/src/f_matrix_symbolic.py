@@ -24,6 +24,13 @@ Symmetries of the F-matrix (always hold regardless of the model):
 
 These symmetries significantly reduce the number of independent variables
 in the symbolic computation.
+
+Performance Optimization:
+    - Uses multiprocessing for parallel simplification of matrix elements
+    - Simplification of G matrix and F-matrix solutions are parallelized
+    - Number of parallel workers configurable via n_workers parameter
+    - Defaults to CPU count if not specified
+    - Can be controlled via --workers command-line argument
 """
 
 import sympy
@@ -32,6 +39,8 @@ import os
 import pickle
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
+import multiprocessing as mp
+from functools import partial
 
 
 # ============================================================================
@@ -167,7 +176,25 @@ def get_case_name(center_prestige: bool, centralized_neologism_creation: bool) -
 
 
 # ============================================================================
-# 2. F-Matrix Stationary State Computation
+# 2. Parallel Processing Helper Functions
+# ============================================================================
+
+def _simplify_single_element(args):
+    """
+    Helper function for parallel simplification of a single matrix element.
+
+    Args:
+        args: Tuple of (i, j, expression)
+
+    Returns:
+        Tuple of (i, j, simplified_expression)
+    """
+    i, j, expr = args
+    return (i, j, simplify(expr))
+
+
+# ============================================================================
+# 3. F-Matrix Stationary State Computation
 # ============================================================================
 
 def identify_symmetries(M: int, center_prestige: bool) -> Dict[Tuple[int, int], str]:
@@ -229,7 +256,8 @@ def compute_f_matrix_stationary(M: int = 3,
                                 center_prestige: bool = False,
                                 centralized_neologism_creation: bool = False,
                                 output_dir: str = None,
-                                verbose: bool = True) -> Tuple[Matrix, Dict]:
+                                verbose: bool = True,
+                                n_workers: int = None) -> Tuple[Matrix, Dict]:
     """
     Compute the stationary F-matrix symbolically.
 
@@ -239,6 +267,7 @@ def compute_f_matrix_stationary(M: int = 3,
         centralized_neologism_creation: Only center creates innovations (default: False)
         output_dir: Directory to save output files (default: IBD_analysis/results)
         verbose: Print progress messages
+        n_workers: Number of parallel workers (default: CPU count)
 
     Returns:
         Tuple of (F_matrix, metadata):
@@ -332,15 +361,29 @@ def compute_f_matrix_stationary(M: int = 3,
     # Compute G = W @ D @ F @ D @ W.T
     G = W * D * F_symbolic * D * W.T
 
+    # Determine number of workers
+    if n_workers is None:
+        n_workers = mp.cpu_count()
+
     # Simplify G (this might take time)
     if verbose:
         print("Simplifying G matrix elements...")
+        print(f"  Using {n_workers} parallel workers...")
+
+    # Prepare arguments for parallel processing
+    g_elements = [(i, j, G[i, j]) for i in range(M) for j in range(M)]
+
+    # Parallel simplification
     G_simplified = sympy.zeros(M, M)
-    for i in range(M):
-        for j in range(M):
-            if verbose and (i * M + j) % 5 == 0:
-                print(f"  Simplifying G[{i},{j}]... ({i*M+j+1}/{M*M})")
-            G_simplified[i, j] = simplify(G[i, j])
+    with mp.Pool(processes=n_workers) as pool:
+        results = pool.map(_simplify_single_element, g_elements)
+
+    # Reconstruct G_simplified matrix from results
+    for i, j, simplified_expr in results:
+        G_simplified[i, j] = simplified_expr
+
+    if verbose:
+        print(f"  Simplified {M*M} G matrix elements")
 
     # Set up equations
     if verbose:
@@ -396,11 +439,26 @@ def compute_f_matrix_stationary(M: int = 3,
     # Build final F-matrix with solutions
     if verbose:
         print("\nSimplifying solutions...")
-    F_solution = sympy.zeros(M, M)
+        print(f"  Using {n_workers} parallel workers...")
+
+    # Prepare arguments for parallel processing
+    f_elements = []
     for i in range(M):
         for j in range(M):
             var_name = var_map[(i, j)]
-            F_solution[i, j] = simplify(solution[f_vars_dict[var_name]])
+            f_elements.append((i, j, solution[f_vars_dict[var_name]]))
+
+    # Parallel simplification
+    F_solution = sympy.zeros(M, M)
+    with mp.Pool(processes=n_workers) as pool:
+        results = pool.map(_simplify_single_element, f_elements)
+
+    # Reconstruct F_solution matrix from results
+    for i, j, simplified_expr in results:
+        F_solution[i, j] = simplified_expr
+
+    if verbose:
+        print(f"  Simplified {M*M} solution elements")
 
     if verbose:
         print("Solution found and simplified!\n")
@@ -431,7 +489,7 @@ def compute_f_matrix_stationary(M: int = 3,
 
 
 # ============================================================================
-# 3. Output Functions
+# 4. Output Functions
 # ============================================================================
 
 def save_results(M: int, case_name: str, F_matrix: Matrix,
@@ -654,7 +712,7 @@ def write_results_to_md(M: int, case_name: str, F_matrix: Matrix,
 
 
 # ============================================================================
-# 4. Main Function
+# 5. Main Function
 # ============================================================================
 
 def main():
@@ -671,6 +729,8 @@ def main():
                        help='Cases to compute, e.g., --cases case1 case2')
     parser.add_argument('--output-dir', type=str, default=None,
                        help='Output directory (default: IBD_analysis/results)')
+    parser.add_argument('--workers', type=int, default=None,
+                       help='Number of parallel workers (default: CPU count)')
 
     args = parser.parse_args()
 
@@ -704,7 +764,8 @@ def main():
                     center_prestige=center_prestige,
                     centralized_neologism_creation=centralized_neologism_creation,
                     output_dir=args.output_dir,
-                    verbose=True
+                    verbose=True,
+                    n_workers=args.workers
                 )
             except Exception as e:
                 print(f"\nError computing M={M}, {case_name}:")
