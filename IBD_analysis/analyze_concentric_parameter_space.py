@@ -22,6 +22,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 
 from src.concentric_analysis import analyze_concentric_for_parameters
+from IBD_analysis.src.f_matrix_cache import FMatrixCache, f_matrix_to_columns, columns_to_f_matrix
+from IBD_analysis.src.distance_metrics import compute_f_distance
+from IBD_analysis.src.concentric_analysis import is_concentric_distribution
 
 
 def generate_exponential_values(base, powers):
@@ -44,46 +47,57 @@ def generate_exponential_values(base, powers):
     return [base ** p for p in powers]
 
 
-def process_single_parameter_combination(args_tuple):
+def process_single_parameter_combination(args_tuple, cached_f_matrix=None):
     """
     Wrapper function for parallel processing of a single parameter combination.
 
     Args:
-        args_tuple: (N, m, alpha, M, case, method, use_symbolic, case_configs)
+        args_tuple: (N, m, alpha, M, case, method, case_configs)
+        cached_f_matrix: Pre-loaded F-matrix from cache (if available)
 
     Returns:
-        dict: Result dictionary with metrics, or None if failed
+        dict: Result dictionary with F-matrix and metrics, or None if failed
     """
-    N, m, alpha, M, case, method, use_symbolic, case_configs = args_tuple
+    N, m, alpha, M, case, method, case_configs = args_tuple
 
     try:
-        center_prestige, centralized_neologism_creation = case_configs[case]
+        # Get F-matrix (from cache or compute)
+        if cached_f_matrix is not None:
+            F_mat = cached_f_matrix
+        else:
+            center_prestige, centralized_neologism_creation = case_configs[case]
+            result = analyze_concentric_for_parameters(
+                N, m, alpha, M,
+                center_prestige, centralized_neologism_creation,
+                distance_method=method,
+                use_symbolic=True,  # Always use symbolic
+                verbose=False
+            )
+            F_mat = result['F_matrix']
 
-        result = analyze_concentric_for_parameters(
-            N, m, alpha, M,
-            center_prestige, centralized_neologism_creation,
-            distance_method=method,
-            use_symbolic=use_symbolic,
-            verbose=False
-        )
+        # Compute distance and concentric judgment (always fresh)
+        distance_matrix = compute_f_distance(F_mat, method=method)
+        is_concentric = is_concentric_distribution(distance_matrix)
 
-        F_mat = result['F_matrix']
-
-        return {
+        # Build result with F-matrix
+        result_dict = {
             'N': N,
             'm': m,
             'alpha': alpha,
             'M': M,
             'case': case,
             'distance_method': method,
-            'is_concentric': result['is_concentric'],
-            'method_used': result['method_used'],
+            'is_concentric': is_concentric,
+            # Store full F-matrix
+            **f_matrix_to_columns(F_mat, M),
             # Store some F-matrix statistics
             'F_diag_mean': np.mean(np.diag(F_mat)),
             'F_offdiag_mean': np.mean(F_mat[~np.eye(M, dtype=bool)]),
             'F_min': np.min(F_mat),
             'F_max': np.max(F_mat),
         }
+
+        return result_dict
 
     except Exception as e:
         print(f"Error processing N={N}, m={m}, alpha={alpha}, M={M}, {case}, {method}: {e}")
@@ -109,8 +123,9 @@ def parameter_sweep_concentric(
     distance_methods=['nei', '1-F'],
 
     # Computation settings
-    use_symbolic=True,
     precompute_symbolic=False,
+    use_cache=False,
+    cache_dir='IBD_analysis/results/f_matrix_cache',
     verbose=False,
     n_workers=None,
 
@@ -127,8 +142,9 @@ def parameter_sweep_concentric(
         M_values: List of M values to test
         cases: List of case names
         distance_methods: List of distance metrics
-        use_symbolic: Use symbolic solutions when available
         precompute_symbolic: Compute and save symbolic solutions before sweep
+        use_cache: Use F-matrix cache to avoid recomputation
+        cache_dir: Directory for F-matrix cache
         verbose: Print detailed progress
         n_workers: Number of parallel workers (default: CPU count)
         output_dir: Output directory for results
@@ -143,7 +159,8 @@ def parameter_sweep_concentric(
         ...     m_powers=range(-5, -3),    # [0.03125, 0.0625]
         ...     alpha_powers=range(-10, -8), # [~0.001, ~0.002]
         ...     M_values=[3],
-        ...     cases=['case1']
+        ...     cases=['case1'],
+        ...     use_cache=True
         ... )
     """
     # Generate parameter values
@@ -161,7 +178,7 @@ def parameter_sweep_concentric(
         print(f"  Distance methods: {distance_methods}")
 
     # Precompute symbolic solutions if requested
-    if precompute_symbolic and use_symbolic:
+    if precompute_symbolic:
         print("\n" + "="*60)
         print("Precomputing symbolic solutions")
         print("="*60)
@@ -190,7 +207,7 @@ def parameter_sweep_concentric(
                     center_prestige, centralized_neologism = case_configs[case]
 
                     # Compute symbolic solution
-                    result = compute_f_matrix_stationary(
+                    F_matrix, metadata = compute_f_matrix_stationary(
                         M=M,
                         center_prestige=center_prestige,
                         centralized_neologism_creation=centralized_neologism,
@@ -201,8 +218,8 @@ def parameter_sweep_concentric(
                     save_results(
                         M=M,
                         case_name=case,
-                        F_matrix=result['F_matrix'],
-                        metadata=result['metadata'],
+                        F_matrix=F_matrix,
+                        metadata=metadata,
                         output_dir=results_dir
                     )
 
@@ -219,40 +236,136 @@ def parameter_sweep_concentric(
         'case4': (True, True),
     }
 
-    # Prepare arguments for parallel processing
-    process_args = [
-        (N, m, alpha, M, case, method, use_symbolic, case_configs)
-        for N, m, alpha, M, case, method in product(
-            N_values, m_values, alpha_values,
-            M_values, cases, distance_methods
-        )
-    ]
-
-    total = len(process_args)
-
-    if verbose:
-        print(f"\nTotal parameter combinations: {total:,}")
-
     # Determine number of workers
     if n_workers is None:
         n_workers = mp.cpu_count()
 
-    if verbose:
-        print(f"Using {n_workers} parallel workers")
-        print("Starting parameter sweep...\n")
-
-    # Process simulations in parallel
+    # All results
     results = []
 
-    with mp.Pool(processes=n_workers) as pool:
-        for result in tqdm(
-            pool.imap(process_single_parameter_combination, process_args),
-            total=total,
-            desc="Parameter sweep",
-            disable=not verbose
-        ):
-            if result is not None:
-                results.append(result)
+    # Process each M value separately
+    for M in M_values:
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"Processing M={M}")
+            print('='*60)
+
+        # Initialize cache for this M
+        cache = FMatrixCache(cache_dir, M) if use_cache else None
+
+        # Process each case
+        for case in cases:
+            if verbose:
+                print(f"\nCase: {case}")
+
+            # Generate parameter combinations for this case
+            param_combinations = list(product(N_values, m_values, alpha_values))
+
+            if use_cache:
+                # Load cached F-matrices
+                cached_df = cache.load_case(case)
+
+                if verbose and len(cached_df) > 0:
+                    print(f"  Loaded {len(cached_df)} cached F-matrices")
+
+                # Identify missing parameters
+                missing_params = cache.get_missing_params(case, param_combinations)
+
+                if verbose:
+                    print(f"  Parameters: {len(param_combinations)} total, {len(missing_params)} to compute")
+
+                # Compute missing F-matrices
+                if len(missing_params) > 0:
+                    if verbose:
+                        print(f"  Computing {len(missing_params)} new F-matrices...")
+
+                    # Prepare args for missing computations (method-independent)
+                    compute_args = [
+                        (N, m, alpha, M, case, distance_methods[0], case_configs)  # Use any method (doesn't affect F-matrix)
+                        for N, m, alpha in missing_params
+                    ]
+
+                    # Compute in parallel
+                    new_results = []
+                    with mp.Pool(processes=n_workers) as pool:
+                        for result in tqdm(
+                            pool.imap(process_single_parameter_combination, compute_args),
+                            total=len(compute_args),
+                            desc=f"  Computing F-matrices ({case})",
+                            disable=not verbose
+                        ):
+                            if result is not None:
+                                new_results.append(result)
+
+                    # Save new F-matrices to cache
+                    if len(new_results) > 0:
+                        f_matrix_results = [
+                            {
+                                'N': r['N'],
+                                'm': r['m'],
+                                'alpha': r['alpha'],
+                                'F_matrix': columns_to_f_matrix(r, M)
+                            }
+                            for r in new_results
+                        ]
+                        cache.append_results(case, f_matrix_results)
+
+                        if verbose:
+                            print(f"  Saved {len(f_matrix_results)} new F-matrices to cache")
+
+                # Now reload cache and process all distance methods
+                cached_df = cache.load_case(case)
+
+                if verbose:
+                    print(f"  Computing distances for {len(distance_methods)} methods...")
+
+                # Process all parameters with all distance methods
+                for method in distance_methods:
+                    for idx, row in tqdm(
+                        cached_df.iterrows(),
+                        total=len(cached_df),
+                        desc=f"  {case}, {method}",
+                        disable=not verbose
+                    ):
+                        N, m, alpha = row['N'], row['m'], row['alpha']
+                        F_mat = columns_to_f_matrix(row, M)
+
+                        # Compute distance and concentric
+                        distance_matrix = compute_f_distance(F_mat, method=method)
+                        is_concentric = is_concentric_distribution(distance_matrix)
+
+                        result = {
+                            'N': N, 'm': m, 'alpha': alpha, 'M': M,
+                            'case': case, 'distance_method': method,
+                            'is_concentric': is_concentric,
+                            **f_matrix_to_columns(F_mat, M),
+                            'F_diag_mean': np.mean(np.diag(F_mat)),
+                            'F_offdiag_mean': np.mean(F_mat[~np.eye(M, dtype=bool)]),
+                            'F_min': np.min(F_mat),
+                            'F_max': np.max(F_mat),
+                        }
+                        results.append(result)
+
+            else:
+                # No cache: compute everything from scratch
+                process_args = [
+                    (N, m, alpha, M, case, method, case_configs)
+                    for N, m, alpha in param_combinations
+                    for method in distance_methods
+                ]
+
+                if verbose:
+                    print(f"  Computing {len(process_args)} combinations...")
+
+                with mp.Pool(processes=n_workers) as pool:
+                    for result in tqdm(
+                        pool.imap(process_single_parameter_combination, process_args),
+                        total=len(process_args),
+                        desc=f"  {case}",
+                        disable=not verbose
+                    ):
+                        if result is not None:
+                            results.append(result)
 
     # Create DataFrame
     df = pd.DataFrame(results)
@@ -464,10 +577,15 @@ def main():
                        help='Distance methods')
 
     # Options
-    parser.add_argument('--numerical', action='store_true',
-                       help='Use numerical computation instead of symbolic')
     parser.add_argument('--precompute-symbolic', action='store_true',
                        help='Precompute symbolic solutions for all M values before parameter sweep')
+    parser.add_argument('--use-cache', action='store_true',
+                       help='Use F-matrix cache to avoid recomputation')
+    parser.add_argument('--cache-dir', type=str,
+                       default='IBD_analysis/results/f_matrix_cache',
+                       help='Directory for F-matrix cache')
+    parser.add_argument('--clear-cache', action='store_true',
+                       help='Clear F-matrix cache and exit')
     parser.add_argument('--workers', type=int, default=None,
                        help='Number of parallel workers (default: CPU count)')
     parser.add_argument('--output-dir', type=str,
@@ -479,6 +597,14 @@ def main():
                        help='Verbose output')
 
     args = parser.parse_args()
+
+    # Handle cache clearing
+    if args.clear_cache:
+        for M in args.M:
+            cache = FMatrixCache(args.cache_dir, M)
+            cache.clear_cache()
+        print(f"Cache cleared for M={args.M}")
+        return
 
     # Parse power ranges
     def parse_range(s):
@@ -500,8 +626,9 @@ def main():
         M_values=args.M,
         cases=args.cases,
         distance_methods=args.methods,
-        use_symbolic=not args.numerical,
         precompute_symbolic=args.precompute_symbolic,
+        use_cache=args.use_cache,
+        cache_dir=args.cache_dir,
         verbose=args.verbose,
         n_workers=args.workers,
         output_dir=args.output_dir
