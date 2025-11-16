@@ -28,7 +28,9 @@ in the symbolic computation.
 Performance Optimization:
     - Uses multiprocessing for parallel simplification of matrix elements
     - Simplification of G matrix and F-matrix solutions are parallelized
-    - Number of parallel workers defaults to the number of CPU cores
+    - Number of parallel workers configurable via n_workers parameter
+    - Defaults to CPU count if not specified
+    - Can be controlled via --workers command-line argument
 """
 
 import sympy
@@ -37,7 +39,7 @@ import os
 import pickle
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
-from multiprocessing import Pool, cpu_count
+import multiprocessing as mp
 from functools import partial
 
 
@@ -254,7 +256,8 @@ def compute_f_matrix_stationary(M: int = 3,
                                 center_prestige: bool = False,
                                 centralized_neologism_creation: bool = False,
                                 output_dir: str = None,
-                                verbose: bool = True) -> Tuple[Matrix, Dict]:
+                                verbose: bool = True,
+                                n_workers: int = None) -> Tuple[Matrix, Dict]:
     """
     Compute the stationary F-matrix symbolically.
 
@@ -264,6 +267,7 @@ def compute_f_matrix_stationary(M: int = 3,
         centralized_neologism_creation: Only center creates innovations (default: False)
         output_dir: Directory to save output files (default: IBD_analysis/results)
         verbose: Print progress messages
+        n_workers: Number of parallel workers (default: CPU count)
 
     Returns:
         Tuple of (F_matrix, metadata):
@@ -357,17 +361,21 @@ def compute_f_matrix_stationary(M: int = 3,
     # Compute G = W @ D @ F @ D @ W.T
     G = W * D * F_symbolic * D * W.T
 
+    # Determine number of workers
+    if n_workers is None:
+        n_workers = mp.cpu_count()
+
     # Simplify G (this might take time)
     if verbose:
         print("Simplifying G matrix elements...")
-        print(f"  Using parallel processing with {cpu_count()} CPU cores...")
+        print(f"  Using {n_workers} parallel workers...")
 
     # Prepare arguments for parallel processing
     g_elements = [(i, j, G[i, j]) for i in range(M) for j in range(M)]
 
     # Parallel simplification
     G_simplified = sympy.zeros(M, M)
-    with Pool() as pool:
+    with mp.Pool(processes=n_workers) as pool:
         results = pool.map(_simplify_single_element, g_elements)
 
     # Reconstruct G_simplified matrix from results
@@ -431,7 +439,7 @@ def compute_f_matrix_stationary(M: int = 3,
     # Build final F-matrix with solutions
     if verbose:
         print("\nSimplifying solutions...")
-        print(f"  Using parallel processing with {cpu_count()} CPU cores...")
+        print(f"  Using {n_workers} parallel workers...")
 
     # Prepare arguments for parallel processing
     f_elements = []
@@ -442,7 +450,7 @@ def compute_f_matrix_stationary(M: int = 3,
 
     # Parallel simplification
     F_solution = sympy.zeros(M, M)
-    with Pool() as pool:
+    with mp.Pool(processes=n_workers) as pool:
         results = pool.map(_simplify_single_element, f_elements)
 
     # Reconstruct F_solution matrix from results
@@ -721,6 +729,8 @@ def main():
                        help='Cases to compute, e.g., --cases case1 case2')
     parser.add_argument('--output-dir', type=str, default=None,
                        help='Output directory (default: IBD_analysis/results)')
+    parser.add_argument('--workers', type=int, default=None,
+                       help='Number of parallel workers (default: CPU count)')
 
     args = parser.parse_args()
 
@@ -754,7 +764,8 @@ def main():
                     center_prestige=center_prestige,
                     centralized_neologism_creation=centralized_neologism_creation,
                     output_dir=args.output_dir,
-                    verbose=True
+                    verbose=True,
+                    n_workers=args.workers
                 )
             except Exception as e:
                 print(f"\nError computing M={M}, {case_name}:")
